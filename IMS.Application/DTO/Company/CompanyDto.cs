@@ -1,0 +1,19 @@
+using IMS.Application.DTO.Product;
+namespace IMS.Application.DTO.Company
+{
+    public class CompanyDto
+    {
+        public Guid Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+        public string HeadOffice { get; set; } = string.Empty;
+        public DateTime CreatedAt { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+        public decimal TotalInventoryValue { get; set; }
+        public int TotalPurchases { get; set; }
+        public decimal SalesTrend { get; set; } //How much we made (this moonth)
+        public List<ProductDto> TopProductsBySales { get; set; } = new List<ProductDto>();
+        public int TotalSalesPerMonth { get; set; }
+        public List<ProductDto> LowOnStockProducts { get; set; } = new List<ProductDto>();
+    }
+}

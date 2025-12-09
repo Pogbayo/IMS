@@ -1,0 +1,13 @@
+namespace IMS.Application.DTO.User
+{
+    public class UserDto
+    {
+        public Guid Id { get; set; }
+        public required string Email { get; set; }
+        public required string FirstName { get; set; }
+        public required string LastName { get; set; }
+        public Guid CompanyId { get; set; }
+        public bool IsCompanyAdmin { get; set; } = false;
+        public int PhoneNumber { get; set; }
+    }
+}
