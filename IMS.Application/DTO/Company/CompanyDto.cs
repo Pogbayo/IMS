@@ -10,10 +10,10 @@ namespace IMS.Application.DTO.Company
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
         public decimal TotalInventoryValue { get; set; }
-        public int TotalPurchases { get; set; }
+        public decimal TotalPurchases { get; set; }
         public decimal SalesTrend { get; set; } //How much we made (this moonth)
-        public List<ProductDto> TopProductsBySales { get; set; } = new List<ProductDto>();
-        public int TotalSalesPerMonth { get; set; }
-        public List<ProductDto> LowOnStockProducts { get; set; } = new List<ProductDto>();
+        public List<TopProductDto> TopProductsBySales { get; set; } = new List<TopProductDto>();
+        public decimal TotalSalesPerMonth { get; set; }
+        public List<LowOnStockProduct> LowOnStockProducts { get; set; } = new List<LowOnStockProduct>();
     }
 }

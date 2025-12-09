@@ -6,19 +6,21 @@
         Create = 1,
         Update = 2,
         Delete = 3,
-
+        Read = 4,
         // Authentication
-        Login = 4,
-        Logout = 5,
-        FailedLogin = 6,
-        PasswordChanged = 7,
+        Login = 5,
+        Logout = 6,
+        FailedLogin = 7,
+        PasswordChanged = 8,
 
         // File operations
-        Export = 8,
-        Import = 9,
+        Export = 9,
+        Import = 10,
 
         // Workflow
-        Approve = 10,
-        Reject = 11
+        Approve = 11,
+        Reject = 12,
+
+        Failed = 13
     }
 }
