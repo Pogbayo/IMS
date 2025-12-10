@@ -1,58 +1,54 @@
 ﻿using IMS.Application.DTO.Company;
 using IMS.Application.DTO.Product;
+using IMS.Application.Interfaces;
 using IMS.Domain.Entities;
 using IMS.Domain.Enums;
+using Microsoft.EntityFrameworkCore;
 
 namespace IMS.Application.Helpers
 {
-    public sealed class CompanyCalculations
+    public sealed class CompanyCalculations : ICompanyCalculations
     {
-            public static decimal CalculateTotalInventoryValue(IQueryable<Warehouse> warehouses)
+            public async Task<decimal> CalculateTotalInventoryValue(IQueryable<Warehouse> warehouses)
             {
 
-                decimal totalInventoryValue = 0;
-                foreach (var warehouse in warehouses)
-                {
-                    foreach (var item in warehouse.ProductWarehouses)
-                    {
-                        totalInventoryValue += item.Quantity * item.Product!.Price;
-                    }
-                }
-                return totalInventoryValue;
+                return await warehouses
+                       .SelectMany(w => w.ProductWarehouses)
+                       .SumAsync(pw => pw.Quantity * pw.Product!.Price);
             }
 
-            public static decimal CalculateTotalPurchases(IQueryable<StockTransaction> stockTransactions)
+            public async Task<decimal> CalculateTotalPurchases(IQueryable<StockTransaction> stockTransactions)
             {
                 var startOfMonth = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
 
-                return stockTransactions
+                return await stockTransactions
                     .Where(st => st.Type == TransactionType.Purchase && st.TransactionDate >= startOfMonth)
-                    .Sum(st => st.QuantityChanged * st.ProductWarehouse!.Product!.Price);
+                    .SumAsync(st => st.QuantityChanged * st.ProductWarehouse!.Product!.Price);
             }
 
-            public static decimal CalculateTotalSalesTrend(IQueryable<StockTransaction> stockTransactions)
+            public async Task<decimal> CalculateTotalSalesTrend(IQueryable<StockTransaction> stockTransactions)
             {
                 var startOfMonth = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
 
-                return stockTransactions
+                return await stockTransactions
                     .Where(st => st.Type == TransactionType.Sale && st.TransactionDate >= startOfMonth)
-                    .Sum(st => st.QuantityChanged * st.ProductWarehouse!.Product!.Price);
+                    .SumAsync(st => st.QuantityChanged * st.ProductWarehouse!.Product!.Price);
             }
 
-            public static int TotalSalesPerMonth(IQueryable<StockTransaction> transactions)
+            public async  Task<int> TotalSalesPerMonth(IQueryable<StockTransaction> transactions)
             {
                 int month = DateTime.UtcNow.Month;
                 int year = DateTime.UtcNow.Year;
 
-                return transactions
+                return await transactions
                     .Where(st => st.Type == TransactionType.Sale
                                  && st.TransactionDate.Month == month
                                  && st.TransactionDate.Year == year)
-                    .Sum(st => st.QuantityChanged);
+                    .SumAsync(st => st.QuantityChanged);
             }
 
 
-            public static IList<TopProductDto> TopProductBySales(
+            public async Task<IList<TopProductDto>> TopProductBySales(
                  IQueryable<StockTransaction> transactions
              )
              {
@@ -60,7 +56,7 @@ namespace IMS.Application.Helpers
                int year = DateTime.UtcNow.Year;
                int top = 5;
 
-                return transactions
+                return await  transactions
                     .Where(st => st.Type == TransactionType.Sale
                                  && st.TransactionDate.Month == month
                                  && st.TransactionDate.Year == year)
@@ -74,28 +70,29 @@ namespace IMS.Application.Helpers
                     })
                     .OrderByDescending(x => x.TotalRevenue)
                     .Take(top)
-                    .ToList();
+                    .ToListAsync();
              }
-        public static List<LowOnStockProduct> GetLowOnStockProducts(
-            IQueryable<ProductWarehouse> productWarehouses,
-            int threshold = 10
-         )
-        {
-            return productWarehouses
-                .GroupBy(pw => pw.Product!)
-                .Select(g => new
-                {
-                    Product = g.Key,
-                    TotalQuantity = g.Sum(pw => pw.Quantity)
-                })
-                .Where(x => x.TotalQuantity < threshold)
-                .Select(x => new LowOnStockProduct
-                {
-                    Name = x.Product.Name,
-                    Price = x.Product.Price
-                })
-                .ToList();
-        }
+
+            public async Task<List<LowOnStockProduct>> GetLowOnStockProducts(
+                IQueryable<ProductWarehouse> productWarehouses,
+                int threshold = 10
+             )
+            {
+                return await productWarehouses
+                    .GroupBy(pw => pw.Product!)
+                    .Select(g => new
+                    {
+                        Product = g.Key,
+                        TotalQuantity = g.Sum(pw => pw.Quantity)
+                    })
+                    .Where(x => x.TotalQuantity < threshold)
+                    .Select(x => new LowOnStockProduct
+                    {
+                        Name = x.Product.Name,
+                        Price = x.Product.Price
+                    })
+                    .ToListAsync();
+            }
 
     }
 }

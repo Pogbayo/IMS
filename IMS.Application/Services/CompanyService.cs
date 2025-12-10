@@ -2,7 +2,7 @@
 using IMS.Application.ApiResponse;
 using IMS.Application.DTO.Company;
 using IMS.Application.DTO.Product;
-using IMS.Application.Helpers;
+using System.Text.Json;
 using IMS.Application.Interfaces;
 using IMS.Application.Interfaces.IAudit;
 using IMS.Domain.Entities;
@@ -11,7 +11,6 @@ using IMS.Infrastructure.Mailer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using static System.Net.WebRequestMethods;
 
 namespace IMS.Application.Services
 {
@@ -24,6 +23,7 @@ namespace IMS.Application.Services
         private readonly IAuditService _audit;
         private readonly IMailerService _mailer;
         private readonly ICurrentUserService _currentUserService;
+        private readonly ICompanyCalculations _companyCalculations;
         public CompanyService(
             ILogger<CompanyService> logger,
             IAppDbContext context,
@@ -31,7 +31,8 @@ namespace IMS.Application.Services
             RoleManager<IdentityRole> roleManager,
             IAuditService audit,
             IMailerService mailer,
-            ICurrentUserService currentUserService
+            ICurrentUserService currentUserService,
+            ICompanyCalculations companyCalculations
             )
         {
             _logger = logger;
@@ -40,8 +41,10 @@ namespace IMS.Application.Services
             _roleManager = roleManager;
             _audit = audit;
             _mailer = mailer;
+            _companyCalculations = companyCalculations;
             _currentUserService = currentUserService;
         }
+
         public async Task<Result<CreatedCompanyDto>> RegisterCompanyAndAdmin(CompanyCreateDto dto)
         {
             var currentuser = _currentUserService.GetCurrentUserId();
@@ -69,6 +72,7 @@ namespace IMS.Application.Services
 
             _context.Companies.Add(company);
             await _context.SaveChangesAsync();
+
             await _audit.LogAsync(
                 userId: currentuser, 
                 companyId: company.Id,
@@ -114,8 +118,10 @@ namespace IMS.Application.Services
                 action: AuditAction.Update,
                 description: $"Admin role assigned to user '{AppUser.Email}'."
             );
+
             company.Users.Add(AppUser);
             company.CreatedById = AppUser.Id;
+            await _context.SaveChangesAsync();
 
             try
             {
@@ -136,6 +142,13 @@ namespace IMS.Application.Services
             catch (Exception ex)
             {
                 _logger.LogInformation(ex.Message);
+
+                await _audit.LogAsync(
+                   userId: AppUser.Id,
+                   companyId: company.Id,
+                   action: AuditAction.Update,
+                   description: $"An unknwown error occurred while assigning role to User: {AppUser.Id}'."
+                 );
             }
 
             var createdCompanyDto = new CreatedCompanyDto
@@ -157,15 +170,93 @@ namespace IMS.Application.Services
             return Result<CreatedCompanyDto>.SuccessResponse(createdCompanyDto);
         }
 
-
-        public Task<Result<string>> DeleteCompany(Guid companyId)
+        public async Task<Result<string>> DeleteCompany(Guid companyId)
         {
-            throw new NotImplementedException();
+            var currentUserId = _currentUserService.GetCurrentUserId();
+            _logger.LogInformation($"{currentUserId} is Attempting to delete {companyId}");
+            if (companyId == Guid.Empty)
+            {
+                _logger.LogInformation($"Please, provide an Id");
+                await _audit.LogAsync(
+                    currentUserId,
+                    companyId,
+                    AuditAction.Failed,
+                    "Attempted to delete company but Id was empty"
+                );
+                return Result<string>.FailureResponse("Id can not be null;");
+            }
+
+            try
+            {
+                var company = await _context.Companies.FindAsync(companyId);
+                if (company == null)
+                {
+                    _logger.LogInformation($"Company not found");
+                    await _audit.LogAsync(
+                        currentUserId,
+                        companyId,
+                        AuditAction.Failed,
+                        "Attempted to delete company but company not found"
+                    );
+                    return Result<string>.FailureResponse("Company with provided Id not found");
+                }
+
+                company.MarkAsDeleted();
+                await _context.SaveChangesAsync();
+
+                await _audit.LogAsync(
+                    currentUserId,
+                    companyId,
+                    AuditAction.Delete,
+                    "Company deleted successfully"
+                );
+                return Result<string>.SuccessResponse("Company deleted successfully");
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Database error deleting company");
+
+                await _audit.LogAsync(
+                    currentUserId,
+                    companyId,
+                    AuditAction.Failed,
+                    "Database error deleting company"
+                );
+                return Result<string>.FailureResponse("A database error occurred while deleting the company");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error deleting company");
+                await _audit.LogAsync(
+                    currentUserId,
+                    companyId,
+                    AuditAction.Failed,
+                    "Unexpected error deleting company"
+                );
+                return Result<string>.FailureResponse("An unexpected error occurred while deleting the company");
+            }
         }
 
         public async Task<Result<CompanyDto>> GetCompanyById(Guid companyId)
         {
             var userId = _currentUserService.GetCurrentUserId();
+            var today = DateTime.UtcNow.Date;
+
+            var todayStat =await _context.CompanyDailyStats.FirstOrDefaultAsync(st => st.CompanyId == companyId && st.StatDate == today);
+
+            var productWarehouses = _context.ProductWarehouses
+                .Include(pw => pw.Product)
+                .Where(pw => pw.Product!.CompanyId == companyId);
+
+            var warehouses = _context.Warehouses
+                .Include(c => c.ProductWarehouses)
+                    .ThenInclude(pw => pw.Product)
+                .Where(c => c.CompanyId == companyId);
+
+            var stockTransactions = _context.StockTransactions
+                .Include(st => st.ProductWarehouse)
+                    .ThenInclude(pw => pw!.Product)
+                .Where(st => st.CompanyId == companyId);
 
             if (companyId == Guid.Empty)
             {
@@ -189,28 +280,12 @@ namespace IMS.Application.Services
                     userId,
                     companyId,
                     AuditAction.Failed,
-                    "Attempted to fetch company but company not found"
+                    "Attempted to fetch company by Id but company not found"
                 );
 
                 return Result<CompanyDto>.FailureResponse("Company not found");
             }
 
-            var productWarehouses = _context.ProductWarehouses
-                .Include(pw => pw.Product)
-                .Where(pw => pw.Product!.CompanyId == companyId)
-                .AsQueryable();
-
-            var warehouses = _context.Warehouses
-                .Include(c => c.ProductWarehouses)
-                    .ThenInclude(pw => pw.Product)
-                .Where(c => c.CompanyId == companyId);
-
-            var stockTransactions = _context.StockTransactions
-                .Include(st => st.ProductWarehouse)
-                    .ThenInclude(pw => pw!.Product)
-                .Where(st => st.CompanyId == companyId);
-
-            
             var companyDto = new CompanyDto
             {
                 Id = company.Id,
@@ -219,12 +294,19 @@ namespace IMS.Application.Services
                 HeadOffice = company.HeadOffice,
                 CreatedAt = company.CreatedAt,
                 UpdatedAt = company.UpdatedAt,
-                TotalInventoryValue = CompanyCalculations.CalculateTotalInventoryValue(warehouses),
-                TotalPurchases = CompanyCalculations.CalculateTotalPurchases(stockTransactions),
-                SalesTrend = CompanyCalculations.CalculateTotalSalesTrend(stockTransactions),
-                TopProductsBySales = CompanyCalculations.TopProductBySales(stockTransactions).ToList(),
-                TotalSalesPerMonth = CompanyCalculations.TotalSalesPerMonth(stockTransactions),
-                LowOnStockProducts = CompanyCalculations.GetLowOnStockProducts(productWarehouses)
+                TotalPurchases = await _companyCalculations.CalculateTotalPurchases(stockTransactions),
+                SalesTrend = await _companyCalculations.CalculateTotalSalesTrend(stockTransactions),
+                TotalSalesPerMonth = await _companyCalculations.TotalSalesPerMonth(stockTransactions),
+
+                TotalInventoryValue = todayStat != null ? todayStat.TotalInventoryValue : 0m,
+
+                TopProductsBySales = todayStat != null
+                    ? JsonSerializer.Deserialize<List<TopProductDto>>(todayStat.TopProductsBySalesJson) ?? new List<TopProductDto>()
+                    : new List<TopProductDto>(),
+
+                LowOnStockProducts = todayStat != null
+                   ? JsonSerializer.Deserialize<List<LowOnStockProduct>>(todayStat.LowOnStockProductsJson) ?? new List<LowOnStockProduct>()
+                   : new List<LowOnStockProduct>()
             };
 
             await _audit.LogAsync(
@@ -237,9 +319,47 @@ namespace IMS.Application.Services
             return Result<CompanyDto>.SuccessResponse(companyDto);
         }
 
-        public Task<Result<string>> UpdateCompany(Guid companyId, CompanyUpdateDto dto)
+        public async Task<Result<string>> UpdateCompany(Guid companyId, CompanyUpdateDto dto)
         {
-            throw new NotImplementedException();
+            var currentUserId = _currentUserService.GetCurrentUserId();
+
+            var company = await _context.Companies
+                .FirstOrDefaultAsync(c => c.Id == companyId);
+
+            if (company == null)
+            {
+                _logger.LogWarning("Company not found");
+
+                await _audit.LogAsync(
+                    currentUserId,
+                    companyId,
+                    AuditAction.Failed,
+                    "Attempted to fetch company by Id to be modified but company not found"
+                );
+
+                return Result<string>.FailureResponse("Company not found");
+            }
+
+            if (dto is null)
+            {
+                _logger.LogWarning("Bad request");
+                return Result<string>.FailureResponse("Invalid request...Please, provide accurate details");
+            }
+
+            company.Name = dto?.Name ?? string.Empty;
+            company.Email = dto?.Email ?? string.Empty;
+            company.HeadOffice = dto?.HeadOffice ?? string.Empty;
+
+            await _context.UpdateChangesAsync(company);
+
+            await _audit.LogAsync(
+                   currentUserId,
+                   companyId,
+                   AuditAction.Failed,
+                   $"Company: {companyId} updated by {currentUserId}"
+             );
+
+            return Result<string>.SuccessResponse("Company updated Successfully");
         }
     }
 }

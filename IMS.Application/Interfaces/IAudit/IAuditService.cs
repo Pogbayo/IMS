@@ -1,6 +1,4 @@
-﻿
-
-using IMS.Domain.Enums;
+﻿using IMS.Domain.Enums;
 
 namespace IMS.Application.Interfaces.IAudit
 {

@@ -11,10 +11,14 @@ namespace IMS.Application.Services
             _httpContextAccessor = httpContextAccessor;
         }
 
-        public Guid? GetCurrentUserId()
+        public Guid GetCurrentUserId()
         {
             var userIdClaim = _httpContextAccessor.HttpContext?.User?.FindFirst("id");
-            return userIdClaim != null ? Guid.Parse(userIdClaim.Value) : (Guid?)null;
+            if (userIdClaim == null)
+            {
+                throw new UnauthorizedAccessException("User ID not found");
+            }
+            return Guid.Parse(userIdClaim.Value);
         }
     }
 }

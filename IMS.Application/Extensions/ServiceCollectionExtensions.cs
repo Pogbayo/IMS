@@ -1,4 +1,5 @@
-﻿using IMS.Application.Interfaces;
+﻿using IMS.Application.Helpers;
+using IMS.Application.Interfaces;
 using IMS.Application.Services;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -10,6 +11,10 @@ namespace IMS.Application.Extensions
         {
             services.AddScoped<IImageService, ImageService>();
             services.AddScoped<ICurrentUserService, CurrentUserService>();
+            services.AddScoped<ICompanyCalculations, CompanyCalculations>();
+            services.AddScoped<ICompanyDailyStatJob, CompanyDailyStatsJob>();
+
+
             return services;
         }
     }

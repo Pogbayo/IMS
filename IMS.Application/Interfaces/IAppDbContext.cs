@@ -14,6 +14,8 @@ namespace IMS.Application.Interfaces
         DbSet<Supplier> Suppliers { get; }
         DbSet<Warehouse> Warehouses { get; }
         DbSet<Category> Categories { get; }
+        DbSet<CompanyDailyStat> CompanyDailyStats { get; }
+        Task<int> UpdateChangesAsync<TEntity>(TEntity entity) where TEntity : class;
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
     }
 }

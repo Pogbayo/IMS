@@ -1,8 +1,9 @@
-﻿using IMS.Domain.Entities;
-using IMS.Application.Interfaces;
+﻿using IMS.Application.Interfaces;
+using IMS.Domain.Entities;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using System.Threading;
 
 namespace IMS.Infrastructure.Persistence
 {
@@ -22,10 +23,17 @@ namespace IMS.Infrastructure.Persistence
         public DbSet<Supplier> Suppliers { get; set; }
         public DbSet<Warehouse> Warehouses { get; set; }
         public DbSet<Category> Categories { get; set; }
+        public DbSet<CompanyDailyStat> CompanyDailyStats { get; set; }
 
         public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
         {
             return base.SaveChangesAsync(cancellationToken);
+        }
+
+        public Task<int> UpdateChangesAsync<TEntity>(TEntity entity) where TEntity : class
+        {
+            Set<TEntity>().Update(entity);
+            return base.SaveChangesAsync();
         }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -50,6 +58,7 @@ namespace IMS.Infrastructure.Persistence
             modelBuilder.Entity<StockTransaction>().ToTable("StockTransactions", "inventory");
             modelBuilder.Entity<ProductWarehouse>().ToTable("ProductWarehouses", "inventory");
             modelBuilder.Entity<Supplier>().ToTable("Suppliers", "inventory");
+            modelBuilder.Entity<CompanyDailyStat>().ToTable("CompanyDailyStats", "inventory");
             modelBuilder.Entity<Warehouse>().ToTable("Warehouses", "inventory");
             modelBuilder.Entity<Category>().ToTable("Categories", "inventory");
 
@@ -65,6 +74,7 @@ namespace IMS.Infrastructure.Persistence
             modelBuilder.Entity<Expense>().HasQueryFilter(e => !e.IsDeleted);
             modelBuilder.Entity<AuditLog>().HasQueryFilter(a => !a.IsDeleted);
             modelBuilder.Entity<Category>().HasQueryFilter(a => !a.IsDeleted);
+            modelBuilder.Entity<CompanyDailyStat>().HasQueryFilter(a => !a.IsDeleted);
 
             // -----------------------------
             // DECIMAL PRECISION FIXES
