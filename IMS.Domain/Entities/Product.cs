@@ -5,7 +5,7 @@ namespace IMS.Domain.Entities
     {
         public string Name { get; set; } = string.Empty;
         public string SKU { get; set; } = string.Empty;
-        public string ImgUrl { get; set; } = string.Empty;
+        public string? ImgUrl { get; set; } 
         public decimal Price { get; set; }
         public Guid CategoryId { get; set; }
         public Category Category { get; set; } = default!;

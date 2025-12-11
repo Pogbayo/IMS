@@ -21,6 +21,7 @@
         Approve = 11,
         Reject = 12,
 
-        Failed = 13
+        Failed = 13,
+        Error = 14
     }
 }

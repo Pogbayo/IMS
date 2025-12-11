@@ -35,7 +35,6 @@ builder.Services.AddRateLimiter(options =>
 });
 
 
-
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "My API", Version = "v1" });
@@ -72,7 +71,6 @@ builder.Services.AddSwaggerGen(c =>
 builder.Services.Configure<JwtSetting>(builder.Configuration.GetSection("Jwt"));
 
 
-
 var jwtIssuer = builder.Configuration["Jwt:Issuer"];
 var jwtAudience = builder.Configuration["Jwt:Audience"];
 var jwtKey = builder.Configuration["Jwt:Key"];
@@ -98,17 +96,14 @@ builder.Services.AddAuthentication(options =>
 });
 
 
-
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddMemoryCache();
 builder.Services.AddOpenApi();
 builder.Services.AddHangfire(configuration =>
     configuration.UseSqlServerStorage(builder.Configuration.GetConnectionString("DefaultConnection"), new Hangfire.SqlServer.SqlServerStorageOptions
     {
-        SchemaName = "hangfire" 
+        SchemaName = "hangfire" ,
     }));
-
-
 
 
 builder.Services.AddApplicationServices();
@@ -128,8 +123,6 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("ManagerOnly", policy =>
         policy.RequireRole("Admin", "User"));
 });
-
-
 
 
 
@@ -155,6 +148,13 @@ if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
+
+#pragma warning disable CS0618 // Type or member is obsolete
+app.UseHangfireServer(new BackgroundJobServerOptions
+{
+    Queues = new[] { "critical", "email", "audit" } 
+});
+#pragma warning restore CS0618 // Type or member is obsolete
 
 app.UseMetricsMiddleware();
 app.UseGlobalExceptionBuilder();

@@ -15,5 +15,6 @@ namespace IMS.Application.DTO.Company
         public List<TopProductDto> TopProductsBySales { get; set; } = new List<TopProductDto>();
         public decimal TotalSalesPerMonth { get; set; }
         public List<LowOnStockProduct> LowOnStockProducts { get; set; } = new List<LowOnStockProduct>();
+        public int TotalNumberOfProducts { get; set; }
     }
 }

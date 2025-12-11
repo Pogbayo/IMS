@@ -1,6 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
-
-namespace IMS.Domain.Entities
+﻿namespace IMS.Domain.Entities
 {
     public abstract class BaseEntity
     {
@@ -9,9 +7,12 @@ namespace IMS.Domain.Entities
         public DateTime? UpdatedAt { get; set; }
         public bool? IsUpdated { get; set; } = false;
         public bool IsDeleted { get; set; } = false;
-
-        private string _phoneNumber = string.Empty;
         public DateTime? DeletedAt { get; set; }
+
+        public bool IsActive { get; set; } = false;
+        public DateTime? MadeActive { get; set; }
+
+        public string PhoneNumber { get; set; } = string.Empty;
 
         public void MarkAsUpdated()
         {
@@ -23,6 +24,17 @@ namespace IMS.Domain.Entities
         {
             IsDeleted = true;
             DeletedAt = DateTime.UtcNow;
+        }
+
+        public void MarkAsActive()
+        {
+            IsActive = true;
+            MadeActive = DateTime.UtcNow;
+        }
+        public void MarkAsInActive()
+        {
+            IsActive = false;
+            MadeActive = DateTime.UtcNow;
         }
     }
 }

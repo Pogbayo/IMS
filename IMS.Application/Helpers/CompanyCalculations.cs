@@ -25,7 +25,7 @@ namespace IMS.Application.Helpers
                     .Where(st => st.Type == TransactionType.Purchase && st.TransactionDate >= startOfMonth)
                     .SumAsync(st => st.QuantityChanged * st.ProductWarehouse!.Product!.Price);
             }
-
+            
             public async Task<decimal> CalculateTotalSalesTrend(IQueryable<StockTransaction> stockTransactions)
             {
                 var startOfMonth = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
@@ -46,7 +46,6 @@ namespace IMS.Application.Helpers
                                  && st.TransactionDate.Year == year)
                     .SumAsync(st => st.QuantityChanged);
             }
-
 
             public async Task<IList<TopProductDto>> TopProductBySales(
                  IQueryable<StockTransaction> transactions

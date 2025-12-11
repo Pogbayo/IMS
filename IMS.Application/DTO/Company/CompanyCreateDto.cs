@@ -1,3 +1,4 @@
+using IMS.Application.DTO.Warehouse;
 using System.ComponentModel.DataAnnotations;
 
 namespace IMS.Application.DTO.Company
@@ -21,5 +22,7 @@ namespace IMS.Application.DTO.Company
         public string? CompanyName { get; set; }
         public string? CompanyEmail { get; set; }
         public string? HeadOffice { get; set; }
+
+        public IList<CreateWarehouseDto> Warehouses = new List<CreateWarehouseDto>();
     } 
 }

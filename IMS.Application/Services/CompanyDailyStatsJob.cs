@@ -24,7 +24,7 @@ namespace IMS.Application.Services
                 var productWarehouses = _context.ProductWarehouses
                      .Include(pw => pw.Product)
                      .Where(pw => pw.Product!.CompanyId == company.Id);
-
+             
                 var warehouses = _context.Warehouses
                     .Include(c => c.ProductWarehouses)
                         .ThenInclude(pw => pw.Product)

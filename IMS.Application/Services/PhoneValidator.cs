@@ -1,11 +1,12 @@
-﻿using PhoneNumbers;
+﻿using IMS.Application.Interfaces;
+using PhoneNumbers;
 using System.ComponentModel.DataAnnotations;
 
 namespace IMS.Application.Services
 {
-    public class PhoneValidator
+    public class PhoneValidator : IPhoneValidator
     {
-        public static void Validate(string number)
+        public Task Validate(string number)
         {
             var phoneUtil = PhoneNumberUtil.GetInstance();
             try
@@ -18,6 +19,8 @@ namespace IMS.Application.Services
             {
                 throw new ValidationException("Invalid phone number.");
             }
+            return Task.CompletedTask; 
+
         }
     }
 }

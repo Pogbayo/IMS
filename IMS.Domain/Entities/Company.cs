@@ -11,7 +11,7 @@ namespace IMS.Domain.Entities
         public ICollection<StockTransaction> StockTransactions { get; set; } = new List<StockTransaction>();
         public ICollection<Supplier> Suppliers { get; set; } = new List<Supplier>();
         public ICollection<AppUser> Users { get; set; } = new List<AppUser>();
-        public ICollection<Warehouse> Warehouses { get; set; } = new List<Warehouse>();
+        public List<Warehouse> Warehouses { get; set; } = new List<Warehouse>();
         public ICollection<Product> Products { get; set; } = new List<Product>();
         public ICollection<Expense> Expenses { get; set; } = new List<Expense>();
     }

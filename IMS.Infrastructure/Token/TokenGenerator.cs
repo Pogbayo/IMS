@@ -1,5 +1,4 @@
 ﻿using IMS.Domain.Entities;
-using IMS.Infrastructure.Token;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;

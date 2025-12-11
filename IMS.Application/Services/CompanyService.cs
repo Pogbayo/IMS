@@ -11,6 +11,8 @@ using IMS.Infrastructure.Mailer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using IMS.Application.DTO;
+using System.Collections.ObjectModel;
 
 namespace IMS.Application.Services
 {
@@ -21,16 +23,16 @@ namespace IMS.Application.Services
         private readonly UserManager<AppUser> _userManager;
         private readonly RoleManager<IdentityRole> _roleManager;
         private readonly IAuditService _audit;
-        private readonly IMailerService _mailer;
         private readonly ICurrentUserService _currentUserService;
         private readonly ICompanyCalculations _companyCalculations;
+        private readonly IWarehouseService _warehouseService;
         public CompanyService(
             ILogger<CompanyService> logger,
+            IWarehouseService warehouseService,
             IAppDbContext context,
             UserManager<AppUser> userManager,
             RoleManager<IdentityRole> roleManager,
             IAuditService audit,
-            IMailerService mailer,
             ICurrentUserService currentUserService,
             ICompanyCalculations companyCalculations
             )
@@ -39,8 +41,8 @@ namespace IMS.Application.Services
             _context = context;
             _userManager = userManager;
             _roleManager = roleManager;
+            _warehouseService = warehouseService;
             _audit = audit;
-            _mailer = mailer;
             _companyCalculations = companyCalculations;
             _currentUserService = currentUserService;
         }
@@ -63,11 +65,25 @@ namespace IMS.Application.Services
             if (string.IsNullOrWhiteSpace(dto.HeadOffice))
                 throw new ArgumentNullException(nameof(dto.HeadOffice));
 
+            var createdWarehouses = new List<Warehouse>();
+
+            foreach (var item in dto.Warehouses)
+            {
+                var result = await _warehouseService.CreateWarehouse(item);
+                if (!result.Success)
+                    continue; 
+
+                var warehouseEntity = await _context.Warehouses.FindAsync(result.Data);
+                if (warehouseEntity != null)
+                    createdWarehouses.Add(warehouseEntity);
+            }
+
             var company = new Company
             {
                 Name = dto.CompanyName,
                 Email = dto.CompanyEmail,
-                HeadOffice = dto.HeadOffice
+                HeadOffice = dto.HeadOffice,
+                Warehouses = createdWarehouses,
             };
 
             _context.Companies.Add(company);
@@ -286,6 +302,8 @@ namespace IMS.Application.Services
                 return Result<CompanyDto>.FailureResponse("Company not found");
             }
 
+            var ProductsCount = company.Products.Count();
+
             var companyDto = new CompanyDto
             {
                 Id = company.Id,
@@ -297,7 +315,7 @@ namespace IMS.Application.Services
                 TotalPurchases = await _companyCalculations.CalculateTotalPurchases(stockTransactions),
                 SalesTrend = await _companyCalculations.CalculateTotalSalesTrend(stockTransactions),
                 TotalSalesPerMonth = await _companyCalculations.TotalSalesPerMonth(stockTransactions),
-
+                TotalNumberOfProducts = ProductsCount,
                 TotalInventoryValue = todayStat != null ? todayStat.TotalInventoryValue : 0m,
 
                 TopProductsBySales = todayStat != null
@@ -313,9 +331,8 @@ namespace IMS.Application.Services
                 userId,
                 companyId,
                 AuditAction.Read,
-                $"User viewed company dashboard for: {company.Name}"
+                $"User: {userId} viewed company dashboard for: {company.Name}"
             );
-
             return Result<CompanyDto>.SuccessResponse(companyDto);
         }
 
@@ -360,6 +377,44 @@ namespace IMS.Application.Services
              );
 
             return Result<string>.SuccessResponse("Company updated Successfully");
+        }
+
+        public async Task<Result<List<CompanyDto>>> GetAllCompanies(int pageSize, int pageNumber)
+        {
+            if (pageNumber < 0 && pageSize < 0)
+            {
+                _logger.LogWarning("PageNumber and pageSie cannot be less than 0");
+                return Result<List<CompanyDto>>.FailureResponse("PageNumber and PageSize can not be less than 0");
+            }
+
+            try
+            {
+                var companies = await _context.Companies
+                  .Skip((pageNumber - 1) * pageSize)
+                  .Take(pageSize)
+                  .Select(c => new CompanyDto
+                  {
+                      Id = c.Id,
+                      Name = c.Name,
+                      Email = c.Email,
+                      HeadOffice = c.HeadOffice
+                  })
+                  .ToListAsync();
+
+                if (!companies.Any())
+                {
+                    _logger.LogInformation("No companies found for page {PageNumber} with page size {PageSize}", pageNumber, pageSize);
+                    return Result<List<CompanyDto>>.FailureResponse("No companies found");
+                }
+
+                return Result<List<CompanyDto>>.SuccessResponse(companies);
+            }
+            catch (Exception ex)
+            {
+
+                _logger.LogError(ex, "Error fetching companies for page {PageNumber}", pageNumber);
+                return Result<List<CompanyDto>>.FailureResponse("An error occurred while fetching companies");
+            }
         }
     }
 }
