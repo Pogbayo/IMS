@@ -258,6 +258,19 @@ namespace IMS.Application.Services
             var userId = _currentUserService.GetCurrentUserId();
             var today = DateTime.UtcNow.Date;
 
+            if (companyId == Guid.Empty)
+            {
+                _logger.LogWarning("Please, provide an Id to complete request");
+                await _audit.LogAsync(
+                    userId,
+                    companyId,
+                    AuditAction.Failed,
+                    "Attempted to fetch company but provided an empty Id"
+                );
+
+                return Result<CompanyDto>.FailureResponse("Id cannot be null");
+            }
+
             var todayStat =await _context.CompanyDailyStats.FirstOrDefaultAsync(st => st.CompanyId == companyId && st.StatDate == today);
 
             var productWarehouses = _context.ProductWarehouses
@@ -273,19 +286,6 @@ namespace IMS.Application.Services
                 .Include(st => st.ProductWarehouse)
                     .ThenInclude(pw => pw!.Product)
                 .Where(st => st.CompanyId == companyId);
-
-            if (companyId == Guid.Empty)
-            {
-                _logger.LogWarning("Please, provide an Id to complete request");
-                await _audit.LogAsync(
-                    userId,
-                    companyId,
-                    AuditAction.Failed,
-                    "Attempted to fetch company but provided an empty Id"
-                );
-
-                return Result<CompanyDto>.FailureResponse("Id cannot be null");
-            }
 
             var company = await _context.Companies.FirstOrDefaultAsync(c => c.Id == companyId);
             if (company == null)

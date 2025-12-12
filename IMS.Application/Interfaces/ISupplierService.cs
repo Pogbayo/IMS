@@ -8,5 +8,6 @@ namespace IMS.Application.Interfaces
         Task<Result<List<SupplierDto>>> GetAllSuppliers();
         Task<Result<string>> UpdateSupplier(SupplierUpdateDto dto);
         Task<Result<string>> DeleteSupplier(Guid supplierId);
+        Task<Result<SupplierDto>> GetSupplierByName(string name);
     }
 }

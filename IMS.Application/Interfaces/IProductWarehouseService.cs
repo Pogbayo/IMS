@@ -15,5 +15,19 @@ namespace IMS.Application.Interfaces
             Guid userId);
         Task ReduceStockAsync(Guid productWarehouseId, int quantitySold, Guid userId); //There will a part on the UI where the staff can enter what they sold to client and send it to the backend and I create a stock transaction for it
         Task<int> GetProductCountAsync(Guid productId, Guid warehouseId);
+        //public Task AddStockAsync(Guid productId, Guid warehouseId, int quantity, Guid userId, string? note)
+        //{
+        //    throw new NotImplementedException();
+        //}
+
+        public Task AdjustStockAsync(Guid productId, Guid warehouseId, int quantity, Guid userId, string? note)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task TransferStockAsync(Guid productId, Guid fromWarehouseId, Guid toWarehouseId, int quantity, Guid userId, string? note)
+        {
+            throw new NotImplementedException();
+        }
     }
 }

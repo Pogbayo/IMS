@@ -1,12 +1,18 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using IMS.Application.DTO.StockTransaction;
+using IMS.Application.Interfaces;
 
 namespace IMS.Application.Services
 {
-    internal class StockTransactionService
+    internal class StockTransactionService : IStockTransactionService
     {
+        public Task<List<StockTransactionDto>> GetStockHistory(Guid productId)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<Guid> LogTransaction(CreateStockTransactionDto dto)
+        {
+            throw new NotImplementedException();
+        }
     }
 }

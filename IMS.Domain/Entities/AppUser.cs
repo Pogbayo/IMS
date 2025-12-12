@@ -8,6 +8,8 @@ namespace IMS.Domain.Entities
         public string LastName { get; set; } = string.Empty;
         public bool IsDeleted { get; set; } 
         public DateTime DeletedAt{get;set;}
+        public bool IsUpdated { get; set; }
+        public DateTime UpdatedAt { get; set; }
         public bool IsCompanyAdmin { get; set; } = false;
         public Guid? CompanyId { get; set; }
         public Company? Company { get; set; } = default!;
@@ -16,6 +18,11 @@ namespace IMS.Domain.Entities
         public void MarkAsDeleted()
         {
             IsDeleted = true;
+            DeletedAt = DateTime.UtcNow;
+        }
+        public void MarkAsUpdated()
+        {
+            IsUpdated = true;
             DeletedAt = DateTime.UtcNow;
         }
     }
