@@ -12,6 +12,8 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.ComponentModel.Design;
+using System.Linq.Expressions;
+using System.Threading.Tasks;
 namespace IMS.Application.Services
 {
     public class ProductService : IProductService
@@ -43,6 +45,7 @@ namespace IMS.Application.Services
 
             return companyId;
         }
+
 
         public async Task<Result<Guid>> CreateProduct(ProductCreateDto dto)
         {
@@ -115,7 +118,7 @@ namespace IMS.Application.Services
                 Name = dto!.Name,
                 SKU = ProductSku,
                 ImgUrl = dto.ImgUrl ?? "",
-                Price = dto.Price,
+                RetailPrice = dto.RetailPrice,
                 CategoryId = category.Id,
                 SupplierId = dto.SupplierId,
                 CompanyId = dto.CompanyId,
@@ -147,6 +150,46 @@ namespace IMS.Application.Services
             _logger.LogInformation("Successfully created product {ProductName} and linked to {WarehouseCount} warehouse(s)", Product.Name, dto.Warehouses.Count);
 
             return Result<Guid>.SuccessResponse(Product.Id);
+        }
+
+        private async Task<Result<dynamic>> CalculateNewStockDetails(TransactionType transactionType, int PreviousQuantity, int QuantityChanged, Warehouse FromWarehouse, Warehouse ToWarehouse)
+        {
+            var previousQuantityCountForFromWarehouse = await _context.ProductWarehouses
+                .Where(pw => pw.WarehouseId == FromWarehouse.Id)
+                .Select(w => w.Quantity)
+                .FirstOrDefaultAsync();
+
+            var previousQuantityCountForToWarehouse = await _context.ProductWarehouses
+                .Where(pw => pw.WarehouseId == ToWarehouse.Id)
+                .Select(w => w.Quantity)
+                .FirstOrDefaultAsync();
+
+            if (transactionType == TransactionType.Transfer)
+            {
+                var TransferResult = new
+                {
+                    FromWarehouseName = FromWarehouse.Name,
+                    ToWarehouseName = ToWarehouse.Name,
+                    FromWarehousePreviousQuantity = previousQuantityCountForFromWarehouse,
+                    FromWarehouseNewQuantity = previousQuantityCountForFromWarehouse - QuantityChanged,
+                    ToWarehousePreviousQuantity = previousQuantityCountForToWarehouse,
+                    ToWarehouseNewQuantity = previousQuantityCountForToWarehouse + QuantityChanged,
+                    TransactionType = TransactionType.Transfer,
+                    QuantityChanged
+                };
+
+                //return Result<dynamic>.SuccessResponse(TransferResult.Cast<dynamic>());
+                return Result<dynamic>.SuccessResponse(TransferResult, "TransactionType was purchase so a dynamic result was generated for this method");
+            }
+
+            var newQuantity = transactionType switch
+            {
+                TransactionType.Sale => PreviousQuantity - QuantityChanged,
+                TransactionType.Purchase => PreviousQuantity + QuantityChanged,
+                _ => PreviousQuantity
+            };
+
+            return Result<dynamic>.SuccessResponse(new { NewQuantity = newQuantity, TransactionType = transactionType, QuantityChanged }, $"Transaction type was {transactionType}");
         }
 
         public async Task<Result<ProductDto>> GetProductById(Guid productId)
@@ -197,7 +240,8 @@ namespace IMS.Application.Services
             };
 
             var pw = await _context.ProductWarehouses
-                .Where(pw => pw.)
+                .Where(pw => pw.ProductId == productId)
+                .ToListAsync();
 
             _logger.LogInformation("Calculated overall count {OverAllCount} and stock level {StockLevel} for product {ProductId}", overAllCount, stockLevel, productId);
 
@@ -213,17 +257,77 @@ namespace IMS.Application.Services
 
             _logger.LogInformation("Fetched supplier info for product {ProductId}", productId);
 
-            var productTransactions = await _context.StockTransactions
+            var stockTransactions = await _context.StockTransactions
                 .Where(st => st.ProductWarehouse!.ProductId == productId)
-                .Select(st => new StockTransactionDto
+                .Include(st => st.ProductWarehouse) 
+                .ToListAsync();
+
+
+            //This first approach wasn't feasible because I needed a method that was awaited to calculate new stock level but couldn't be inluded in an EF core Select method
+            //var productTransactions = await _context.StockTransactions
+            //    .Where(st => st.ProductWarehouse!.ProductId == productId)
+            //    .Select(st => new StockTransactionDto
+            //    {
+            //        QuantityChanged = st.QuantityChanged,
+            //        Type = st.Type,
+            //        Note = st.Note,
+            //        TransactionDate = st.TransactionDate,
+            //        WarehouseId = st.ProductWarehouse!.WarehouseId,
+            //        NewStockLevel =
+            //    })
+            //    .ToListAsync();
+                  
+
+            var productTransactions = new List<StockTransactionDto>();
+
+            foreach (var st in stockTransactions)
+            {
+                object? newStockData;
+
+                if (st.Type == TransactionType.Transfer)
+                {
+                    var result = await CalculateNewStockDetails(st.Type,
+                    st.ProductWarehouse!.Quantity,
+                    st.QuantityChanged,
+                    st.FromWarehouse!,
+                    st.ToWarehouse!);
+
+                    newStockData = result;
+                }
+                else if (st.Type == TransactionType.Purchase)
+                {
+                    newStockData = new PurchaseStockLevelDto
+                    {
+                        PreviousQuantity = st.ProductWarehouse!.Quantity,
+                        NewQuantity = st.ProductWarehouse.Quantity + st.QuantityChanged
+                    };
+                }
+                else if (st.Type == TransactionType.Sale)
+                {
+                    newStockData = new SaleStockLevelDto
+                    {
+                        PreviousQuantity = st.ProductWarehouse!.Quantity,
+                        NewQuantity = st.ProductWarehouse.Quantity - st.QuantityChanged
+                    };
+                }
+                else
+                {
+                    newStockData = null;
+                }
+
+                var productTransaction = new StockTransactionDto
                 {
                     QuantityChanged = st.QuantityChanged,
                     Type = st.Type,
                     Note = st.Note,
                     TransactionDate = st.TransactionDate,
-                    NewStockLevel = 
-                })
-                .ToListAsync();
+                    WarehouseId = st.ProductWarehouse!.WarehouseId,
+                    WarehouseName = st.FromWarehouse!.Name,
+                    NewStockLevel = newStockData
+                };
+
+                productTransactions.Add(productTransaction);
+            }
 
             _logger.LogInformation("Fetched {TransactionCount} stock transactions for product {ProductId}", productTransactions.Count, productId);
 
@@ -233,7 +337,7 @@ namespace IMS.Application.Services
                 Name = product.Name,
                 SKU = product.SKU,
                 ImgUrl = product.ImgUrl,
-                Price = product.Price,
+                RetailPrice = product.RetailPrice,
                 Quantity = warehouseProductQuantity,
                 OverAllCount = overAllCount,
                 StockLevel = stockLevel,
@@ -267,7 +371,7 @@ namespace IMS.Application.Services
             {
                 var companyProducts = await _context.Products
                     .Where(p => p.CompanyId == companyId)
-                    .Select(p => new { Id = p.Id, Name = p.Name, SKU = p.SKU, ImgUrl = p.ImgUrl, Price = p.Price })
+                    .Select(p => new { Id = p.Id, Name = p.Name, SKU = p.SKU, ImgUrl = p.ImgUrl, RetailPrice = p.RetailPrice })
                     .ToListAsync();
 
                 if (!companyProducts.Any())
@@ -306,7 +410,7 @@ namespace IMS.Application.Services
             }
 
             product.Name = dto.Name ?? product.Name;
-            product.Price = dto.Price ?? product.Price;
+            product.RetailPrice = dto.Price ?? product.RetailPrice;
             product.ImgUrl = dto.ImgUrl ?? product.ImgUrl;
 
             product.MarkAsUpdated();

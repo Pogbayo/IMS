@@ -361,5 +361,10 @@ namespace IMS.Application.Services
                 return Result<string>.FailureResponse("An error occurred while updating the supplier.");
             }
         }
+
+        public Task<Result<SupplierDto>> GetSupplierByName(string name)
+        {
+            throw new NotImplementedException();
+        }
     }
 }

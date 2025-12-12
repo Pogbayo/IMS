@@ -14,6 +14,10 @@ namespace IMS.Domain.Entities
         public Guid UserId { get; set; } 
         public AppUser User { get; set; } = default!;
         public Guid CompanyId { get; set; }
+        public virtual Warehouse? FromWarehouse { get; set; }
+        public Guid? FromWarehouseId { get; set; }
+        public virtual Warehouse? ToWarehouse { get; set; }
+        public Guid? ToWarehouseId { get; set; }
         public Company Company { get; set; } = default!;
         public DateTime TransactionDate { get; set; } = DateTime.UtcNow; 
     }

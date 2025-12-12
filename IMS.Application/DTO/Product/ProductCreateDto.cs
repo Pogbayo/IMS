@@ -4,7 +4,8 @@ namespace IMS.Application.DTO.Product
     {
         public required string Name { get; set; }
         public string? ImgUrl { get; set; }
-        public decimal Price { get; set; }
+        public decimal CostPrice { get; set; }
+        public decimal RetailPrice { get; set; }
         public string? CategoryName { get; set; } 
         public Guid CompanyId { get; set; }
         //public Guid WarehouseId { get; set; }

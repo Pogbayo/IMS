@@ -23,7 +23,9 @@ namespace IMS.Application.DTO.Product
         public required string Name { get; set; }
         public required string SKU { get; set; }
         public string? ImgUrl { get; set; }
-        public decimal Price { get; set; } = 0m;
+        public decimal CostPrice { get; set; } = 0m;
+        public decimal RetailPrice { get; set; } = 0m;
+        public decimal Profit { get; set; }
         public List<WarehouseCount> Quantity { get; set; } = default!;
         public int OverAllCount { get; set; }
         public ProductStockLevel StockLevel { get; set; }
