@@ -14,7 +14,7 @@ namespace IMS.Application.Helpers
 
                 return await warehouses
                        .SelectMany(w => w.ProductWarehouses)
-                       .SumAsync(pw => pw.Quantity * pw.Product!.Price);
+                       .SumAsync(pw => pw.Quantity * pw.Product!.RetailPrice);
             }
 
             public async Task<decimal> CalculateTotalPurchases(IQueryable<StockTransaction> stockTransactions)
@@ -23,7 +23,7 @@ namespace IMS.Application.Helpers
 
                 return await stockTransactions
                     .Where(st => st.Type == TransactionType.Purchase && st.TransactionDate >= startOfMonth)
-                    .SumAsync(st => st.QuantityChanged * st.ProductWarehouse!.Product!.Price);
+                    .SumAsync(st => st.QuantityChanged * st.ProductWarehouse!.Product!.RetailPrice);
             }
             
             public async Task<decimal> CalculateTotalSalesTrend(IQueryable<StockTransaction> stockTransactions)
@@ -32,7 +32,7 @@ namespace IMS.Application.Helpers
 
                 return await stockTransactions
                     .Where(st => st.Type == TransactionType.Sale && st.TransactionDate >= startOfMonth)
-                    .SumAsync(st => st.QuantityChanged * st.ProductWarehouse!.Product!.Price);
+                    .SumAsync(st => st.QuantityChanged * st.ProductWarehouse!.Product!.RetailPrice);
             }
 
             public async  Task<int> TotalSalesPerMonth(IQueryable<StockTransaction> transactions)
@@ -65,7 +65,7 @@ namespace IMS.Application.Helpers
                         ProductId = g.Key.Id,
                         Name = g.Key.Name,
                         QuantitySold = g.Sum(x => x.QuantityChanged),
-                        TotalRevenue = g.Sum(x => x.QuantityChanged * g.Key.Price)
+                        TotalRevenue = g.Sum(x => x.QuantityChanged * g.Key.RetailPrice)
                     })
                     .OrderByDescending(x => x.TotalRevenue)
                     .Take(top)
@@ -88,7 +88,7 @@ namespace IMS.Application.Helpers
                     .Select(x => new LowOnStockProduct
                     {
                         Name = x.Product.Name,
-                        Price = x.Product.Price
+                        Price = x.Product.RetailPrice
                     })
                     .ToListAsync();
             }

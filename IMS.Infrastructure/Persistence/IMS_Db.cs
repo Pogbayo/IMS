@@ -84,7 +84,7 @@ namespace IMS.Infrastructure.Persistence
                 .HasPrecision(18, 2);
 
             modelBuilder.Entity<Product>()
-                .Property(p => p.Price)
+                .Property(p => p.RetailPrice)
                 .HasPrecision(18, 2);
 
             // -----------------------------
