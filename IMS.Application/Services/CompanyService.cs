@@ -64,131 +64,147 @@ namespace IMS.Application.Services
             if (string.IsNullOrWhiteSpace(dto.HeadOffice))
                 throw new ArgumentNullException(nameof(dto.HeadOffice));
 
-            //using var transaction = await ((DbContext)_context).Database.BeginTransactionAsync();
-
-            //while (true)
-            //{
-                
-            //}
-            var createdWarehouses = new List<Warehouse>();
-
-            foreach (var item in dto.Warehouses)
-            {
-                var result = await _warehouseService.CreateWarehouse(item);
-                if (!result.Success)
-                    continue; 
-
-                var warehouseEntity = await _context.Warehouses.FindAsync(result.Data);
-                if (warehouseEntity != null)
-                    createdWarehouses.Add(warehouseEntity);
-            }
-
-            var company = new Company
-            {
-                Name = dto.CompanyName,
-                Email = dto.CompanyEmail,
-                HeadOffice = dto.HeadOffice,
-                Warehouses = createdWarehouses,
-            };
-
-            _context.Companies.Add(company);
-            await _context.SaveChangesAsync();
-
-            await _audit.LogAsync(
-                userId: currentuser, 
-                companyId: company.Id,
-                action: AuditAction.Create,
-                description: $"Company '{company.Name}' created with email '{company.Email}'."
-            );
-
-            var AppUser = new AppUser
-            {
-                FirstName = dto.FirstName,
-                LastName = dto.LastName,
-                Email = dto.Email,
-                Company = company,
-                CreatedCompany = company,
-                IsCompanyAdmin = true
-            };
-
-            await _audit.LogAsync(
-                userId: AppUser.Id,
-                companyId: company.Id,
-                action: AuditAction.Create,
-                description: $"Admin user '{AppUser.FirstName} {AppUser.LastName}' created for company '{company.Name}'."
-            );
-
-            var IdentityResult = await _userManager.CreateAsync(AppUser, dto.Password);
-
-            if (!IdentityResult.Succeeded)
-            {
-                var errorMessages = string.Join("; ", IdentityResult.Errors.Select(e => e.Description));
-                return Result<CreatedCompanyDto>.FailureResponse($"Error registering user: {errorMessages}");
-            }
-
-            if (!await _roleManager.RoleExistsAsync("Admin"))
-            {
-                await _roleManager.CreateAsync(new IdentityRole("Admin"));
-            }
-
-            await _userManager.AddToRoleAsync(AppUser, "Admin");
-
-            await _audit.LogAsync(
-                userId: AppUser.Id,
-                companyId: company.Id,
-                action: AuditAction.Update,
-                description: $"Admin role assigned to user '{AppUser.Email}'."
-            );
-
-            company.Users.Add(AppUser);
-            company.CreatedById = AppUser.Id;
-            await _context.SaveChangesAsync();
+            using var transaction = await ((DbContext)_context).Database.BeginTransactionAsync();
 
             try
             {
-                string confirmationUrl = "https://superaqual-nelle-aerogenically.ngrok-free.dev/suppliers";
-                string body = $"Hi {AppUser.FirstName},<br><br>Please confirm your email by clicking the link {confirmationUrl}.";
+                var createdWarehouses = new List<Warehouse>();
 
-                BackgroundJob.Enqueue<IMailerService>(mailer =>
-                    mailer.SendEmailAsync(AppUser.Email!, "Confirm Your Account", body)
-                );
+                foreach (var item in dto.Warehouses)
+                {
+                    var result = await _warehouseService.CreateWarehouse(item);
+                    if (!result.Success)
+                        continue;
+
+                    var warehouseEntity = await _context.Warehouses.FindAsync(result.Data);
+                    if (warehouseEntity != null)
+                        createdWarehouses.Add(warehouseEntity);
+                }
+
+                var company = new Company
+                {
+                    Name = dto.CompanyName,
+                    Email = dto.CompanyEmail,
+                    HeadOffice = dto.HeadOffice,
+                    Warehouses = createdWarehouses,
+                };
+
+                _context.Companies.Add(company);
+                await _context.SaveChangesAsync();
 
                 await _audit.LogAsync(
-                    userId: AppUser.Id,
+                    userId: currentuser,
                     companyId: company.Id,
                     action: AuditAction.Create,
-                    description: $"Confirmation email sent to '{AppUser.Email}'."
+                    description: $"Company '{company.Name}' created with email '{company.Email}'."
                 );
-            }
-            catch (Exception ex)
-            {
-                _logger.LogInformation(ex.Message);
+
+                var AppUser = new AppUser
+                {
+                    FirstName = dto.FirstName,
+                    LastName = dto.LastName,
+                    Email = dto.Email,
+                    Company = company,
+                    CreatedCompany = company,
+                    IsCompanyAdmin = true
+                };
+
+                //await _audit.LogAsync(
+                //    userId: AppUser.Id,
+                //    companyId: company.Id,
+                //    action: AuditAction.Create,
+                //    description: $"Admin user '{AppUser.FirstName} {AppUser.LastName}' created for company '{company.Name}'."
+                //);
+
+                var IdentityResult = await _userManager.CreateAsync(AppUser, dto.Password);
+
+                if (!IdentityResult.Succeeded)
+                {
+                    var errorMessages = string.Join("; ", IdentityResult.Errors.Select(e => e.Description));
+                    return Result<CreatedCompanyDto>.FailureResponse($"Error registering user: {errorMessages}");
+                }
 
                 await _audit.LogAsync(
                    userId: AppUser.Id,
                    companyId: company.Id,
-                   action: AuditAction.Update,
-                   description: $"An unknwown error occurred while assigning role to User: {AppUser.Id}'."
-                 );
-            }
+                   action: AuditAction.Create,
+                   description: $"Admin user '{AppUser.FirstName} {AppUser.LastName}' registered with company '{company.Name}'."
+               );
 
-            var createdCompanyDto = new CreatedCompanyDto
+                if (!await _roleManager.RoleExistsAsync("Admin"))
+                {
+                    await _roleManager.CreateAsync(new IdentityRole("Admin"));
+                }
+
+                await _userManager.AddToRoleAsync(AppUser, "Admin");
+
+                await _audit.LogAsync(
+                    userId: AppUser.Id,
+                    companyId: company.Id,
+                    action: AuditAction.Update,
+                    description: $"Admin role assigned to user '{AppUser.Email}'."
+                );
+
+                company.Users.Add(AppUser);
+                company.CreatedById = AppUser.Id;
+                await _context.SaveChangesAsync();
+
+                var createdCompanyDto = new CreatedCompanyDto
+                {
+                    AdminId = AppUser.Id,
+                    CompanyId = company.Id,
+                    Name = company.Name,
+                    Email = company.Email,
+                    HeadOffice = company.HeadOffice,
+                    CreatedAt = company.CreatedAt,
+                    UpdatedAt = company.UpdatedAt,
+                    TotalInventoryValue = 0,
+                    TotalPurchases = 0,
+                    SalesTrend = 0,
+                    TopProductsBySales = new List<ProductsDto>(),
+                    TotalSalesPerMonth = 0,
+                    LowOnStockProducts = new List<ProductsDto>()
+                };
+
+                await transaction.CommitAsync();
+
+                try
+                {
+                    string confirmationUrl = "https://superaqual-nelle-aerogenically.ngrok-free.dev/suppliers";
+                    string body = $"Hi {AppUser.FirstName},<br><br>Please confirm your email by clicking the link {confirmationUrl}.";
+
+                    BackgroundJob.Enqueue<IMailerService>(mailer =>
+                        mailer.SendEmailAsync(AppUser.Email!, "Confirm Your Account", body)
+                    );
+
+                    await _audit.LogAsync(
+                        userId: AppUser.Id,
+                        companyId: company.Id,
+                        action: AuditAction.Create,
+                        description: $"Confirmation email sent to '{AppUser.Email}'."
+                    );
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogInformation(ex.Message);
+
+                    await _audit.LogAsync(
+                       userId: AppUser.Id,
+                       companyId: company.Id,
+                       action: AuditAction.Update,
+                       description: $"An unknwown error occurred while assigning role to User: {AppUser.Id}'."
+                     );
+                }
+
+                _logger.LogInformation("Transaction complete");
+                return Result<CreatedCompanyDto>.SuccessResponse(createdCompanyDto);
+            }
+            catch (Exception)
             {
-                AdminId = AppUser.Id,
-                CompanyId = company.Id,
-                Name = company.Name,
-                Email = company.Email,
-                HeadOffice = company.HeadOffice,
-                CreatedAt = company.CreatedAt,
-                UpdatedAt = company.UpdatedAt,
-                TotalInventoryValue = 0,
-                TotalPurchases = 0,
-                SalesTrend = 0,
-                TopProductsBySales = new List<ProductsDto>(),
-                TotalSalesPerMonth = 0,
-                LowOnStockProducts = new List<ProductsDto>()
-            };
-            return Result<CreatedCompanyDto>.SuccessResponse(createdCompanyDto);
+                await transaction.RollbackAsync();
+                _logger.LogInformation("Transaction not complete");
+                return Result<CreatedCompanyDto>.FailureResponse("Trnasaction not complete");
+            }
         }
 
         public async Task<Result<string>> DeleteCompany(Guid companyId)
