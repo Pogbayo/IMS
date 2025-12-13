@@ -17,7 +17,6 @@ namespace IMS.Domain.Entities
         public Company Company { get; set; } = default!;
         public ICollection<ProductWarehouse> ProductWarehouses { get; set; } = new List<ProductWarehouse>();
 
-
         public decimal SetProfit()
         {
            var profit = RetailPrice - CostPrice ;

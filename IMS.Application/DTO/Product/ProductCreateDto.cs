@@ -1,9 +1,11 @@
+using Microsoft.AspNetCore.Http;
+
 namespace IMS.Application.DTO.Product
 {
     public class ProductCreateDto
     {
         public required string Name { get; set; }
-        public string? ImgUrl { get; set; }
+        public IFormFile? Image { get; set; }
         public decimal CostPrice { get; set; }
         public decimal RetailPrice { get; set; }
         public string? CategoryName { get; set; } 

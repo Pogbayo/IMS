@@ -14,8 +14,8 @@ namespace IMS.Application.DTO.Company
         public int TotalPurchases { get; set; }
         public decimal TotalInventoryValue { get; set; }
         public decimal SalesTrend { get; set; } //How much we made (this moonth)
-        public List<ProductDto> TopProductsBySales { get; set; } = new List<ProductDto>();
+        public List<ProductsDto> TopProductsBySales { get; set; } = new List<ProductsDto>();
         public int TotalSalesPerMonth { get; set; }
-        public List<ProductDto> LowOnStockProducts { get; set; } = new List<ProductDto>();
+        public List<ProductsDto> LowOnStockProducts { get; set; } = new List<ProductsDto>();
     }
 }

@@ -17,5 +17,6 @@ namespace IMS.Application.Interfaces
         DbSet<CompanyDailyStat> CompanyDailyStats { get; }
         Task<int> UpdateChangesAsync<TEntity>(TEntity entity) where TEntity : class;
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+        Task BeginTransactionAsync();
     }
 }

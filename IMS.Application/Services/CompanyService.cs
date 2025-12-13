@@ -11,8 +11,7 @@ using IMS.Infrastructure.Mailer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using IMS.Application.DTO;
-using System.Collections.ObjectModel;
+
 
 namespace IMS.Application.Services
 {
@@ -65,6 +64,12 @@ namespace IMS.Application.Services
             if (string.IsNullOrWhiteSpace(dto.HeadOffice))
                 throw new ArgumentNullException(nameof(dto.HeadOffice));
 
+            //using var transaction = await ((DbContext)_context).Database.BeginTransactionAsync();
+
+            //while (true)
+            //{
+                
+            //}
             var createdWarehouses = new List<Warehouse>();
 
             foreach (var item in dto.Warehouses)
@@ -179,9 +184,9 @@ namespace IMS.Application.Services
                 TotalInventoryValue = 0,
                 TotalPurchases = 0,
                 SalesTrend = 0,
-                TopProductsBySales = new List<ProductDto>(),
+                TopProductsBySales = new List<ProductsDto>(),
                 TotalSalesPerMonth = 0,
-                LowOnStockProducts = new List<ProductDto>()
+                LowOnStockProducts = new List<ProductsDto>()
             };
             return Result<CreatedCompanyDto>.SuccessResponse(createdCompanyDto);
         }

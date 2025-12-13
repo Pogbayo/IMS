@@ -87,6 +87,11 @@ namespace IMS.Infrastructure.Persistence
                 .Property(p => p.RetailPrice)
                 .HasPrecision(18, 2);
 
+            modelBuilder.Entity<Product>()
+                .HasIndex(p => p.SKU)
+                .IsUnique();
+
+
             // -----------------------------
             // RELATIONSHIPS
             // -----------------------------
