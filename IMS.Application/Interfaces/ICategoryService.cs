@@ -10,7 +10,7 @@ namespace IMS.Application.Interfaces
         Task UpdateCategory(Guid categoryId, UpdateCategoryDto dto);
         Task DeleteCategory(Guid categoryId);
         Task<CategoryDto> GetCategoryById(Guid categoryId);
-        Task<List<CategoryDto>> GetCategories(Guid companyId);
+        //Task<List<CategoryDto>> GetCategories(Guid companyId);
     }
 
 }

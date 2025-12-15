@@ -147,6 +147,7 @@ namespace IMS.Application.Services
 
                 company.Users.Add(AppUser);
                 company.CreatedById = AppUser.Id;
+
                 await _context.SaveChangesAsync();
 
                 var createdCompanyDto = new CreatedCompanyDto
@@ -292,7 +293,7 @@ namespace IMS.Application.Services
                 return Result<CompanyDto>.FailureResponse("Id cannot be null");
             }
 
-            var todayStat =await _context.CompanyDailyStats.FirstOrDefaultAsync(st => st.CompanyId == companyId && st.StatDate == today);
+            var todayStat = await _context.CompanyDailyStats.FirstOrDefaultAsync(st => st.CompanyId == companyId && st.StatDate == today);
 
             var productWarehouses = _context.ProductWarehouses
                 .Include(pw => pw.Product)
@@ -387,6 +388,7 @@ namespace IMS.Application.Services
             company.Name = dto?.Name ?? string.Empty;
             company.Email = dto?.Email ?? string.Empty;
             company.HeadOffice = dto?.HeadOffice ?? string.Empty;
+            company.MarkAsUpdated();
 
             await _context.UpdateChangesAsync(company);
 

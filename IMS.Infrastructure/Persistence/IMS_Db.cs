@@ -3,6 +3,7 @@ using IMS.Domain.Entities;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using System.Threading;
 
 namespace IMS.Infrastructure.Persistence
@@ -24,6 +25,10 @@ namespace IMS.Infrastructure.Persistence
         public DbSet<Warehouse> Warehouses { get; set; }
         public DbSet<Category> Categories { get; set; }
         public DbSet<CompanyDailyStat> CompanyDailyStats { get; set; }
+        public async Task<IDbContextTransaction> BeginTransactionAsync()
+        {
+            return await Database.BeginTransactionAsync();
+        }
 
         public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
         {

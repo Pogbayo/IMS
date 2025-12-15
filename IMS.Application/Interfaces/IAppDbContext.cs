@@ -1,5 +1,6 @@
 ﻿using IMS.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace IMS.Application.Interfaces
 {
@@ -15,8 +16,9 @@ namespace IMS.Application.Interfaces
         DbSet<Warehouse> Warehouses { get; }
         DbSet<Category> Categories { get; }
         DbSet<CompanyDailyStat> CompanyDailyStats { get; }
+        Task<IDbContextTransaction> BeginTransactionAsync();
         Task<int> UpdateChangesAsync<TEntity>(TEntity entity) where TEntity : class;
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
-        Task BeginTransactionAsync();
+        //Task BeginTransactionAsync();
     }
 }

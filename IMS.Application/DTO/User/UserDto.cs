@@ -4,8 +4,9 @@ namespace IMS.Application.DTO.User
     {
         public Guid Id { get; set; }
         public required string Email { get; set; }
-        public required string FirstName { get; set; }
-        public required string LastName { get; set; }
+        public  string ?FirstName { get; set; }
+        public  string? LastName { get; set; }
+        public  string? UserName { get; set; }
         public Guid CompanyId { get; set; }
         public bool IsCompanyAdmin { get; set; } = false;
         public int PhoneNumber { get; set; }

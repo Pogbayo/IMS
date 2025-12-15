@@ -22,9 +22,12 @@ namespace IMS.Application.Services
         private readonly IAuditService _audit;
         private readonly ICurrentUserService _currentUserService;
         private readonly UserManager<AppUser> _userManager;
-        public readonly IImageService _imageService;
-        public ProductService(IImageService imageService,UserManager<AppUser> userManager,ILogger<ProductService> logger, IAppDbContext context, IAuditService audit, ICurrentUserService currentUserService)
+        private readonly IImageService _imageService;
+        private readonly IStockTransactionService _stockTransaction;
+
+        public ProductService(IStockTransactionService stockTransaction,IImageService imageService,UserManager<AppUser> userManager,ILogger<ProductService> logger, IAppDbContext context, IAuditService audit, ICurrentUserService currentUserService)
         {
+            _stockTransaction = stockTransaction;
             _imageService = imageService;
             _userManager = userManager;
             _logger = logger;
@@ -47,7 +50,7 @@ namespace IMS.Application.Services
             return companyId;
         }
 
-        private async Task<Result<dynamic>> CalculateNewStockDetails(TransactionType transactionType, int PreviousQuantity, int QuantityChanged, Warehouse FromWarehouse, Warehouse ToWarehouse)
+        public async Task<Result<dynamic>> CalculateNewStockDetails(TransactionType transactionType, int PreviousQuantity, int QuantityChanged, Warehouse FromWarehouse, Warehouse ToWarehouse)
         {
             var previousQuantityCountForFromWarehouse = await _context.ProductWarehouses
                 .Where(pw => pw.WarehouseId == FromWarehouse.Id)
@@ -148,6 +151,7 @@ namespace IMS.Application.Services
                 {
                     SkuAttempt++;
 
+
                     var lastProductSku = await _context.ProductWarehouses
                     .Where(pw => pw.WarehouseId == warehouseDeets.Id && pw.Product!.SupplierId == supplierDeets.Id)
                     .OrderByDescending(pw => pw.Product!.SKU)
@@ -212,6 +216,19 @@ namespace IMS.Application.Services
                             _logger.LogInformation("Successfully created product {ProductName} and linked to {WarehouseCount} warehouse(s)", Product.Name, dto.Warehouses.Count);
 
                             await transaction.CommitAsync();
+                            var transactionDto = new CreateStockTransactionDto
+                            {
+                                ProductId = Product.Id,
+                                QuantityChanged = pw.Quantity,
+                                Type = TransactionType.Purchase,
+                                CompanyId = Product.CompanyId,
+                                Note = $"{userId} added this product to warehouse {pw.Warehouse!.Name} on {Product.CreatedAt}",
+                                FromWarehouseId = pw.WarehouseId,
+                                ToWarehouseId = null 
+                            };
+
+                            await _stockTransaction.LogTransaction
+                                (transactionDto);
                             return Result<Guid>.SuccessResponse(Product.Id);
                         }
                     }
@@ -333,7 +350,8 @@ namespace IMS.Application.Services
 
                 if (st.Type == TransactionType.Transfer)
                 {
-                    var result = await CalculateNewStockDetails(st.Type,
+                    var result = await CalculateNewStockDetails(
+                    st.Type,
                     st.ProductWarehouse!.Quantity,
                     st.QuantityChanged,
                     st.FromWarehouse!,
@@ -666,10 +684,7 @@ namespace IMS.Application.Services
             }
         }
 
-        public async Task<Result<PaginatedProductsDto>> GetProductBySku(
-            string sku,
-            int pageNumber = 1,
-            int pageSize = 20)
+        public async Task<Result<PaginatedProductsDto>> GetProductBySku(string sku,int pageNumber = 1, int pageSize = 20)
         {
             var userId = _currentUserService.GetCurrentUserId();
             var companyId = await GetCurrentUserCompanyIdAsync();

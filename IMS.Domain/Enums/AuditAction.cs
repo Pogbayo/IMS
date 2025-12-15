@@ -7,6 +7,7 @@
         Update = 2,
         Delete = 3,
         Read = 4,
+
         // Authentication
         Login = 5,
         Logout = 6,
@@ -22,6 +23,7 @@
         Reject = 12,
 
         Failed = 13,
-        Error = 14
+        Error = 14,
+        Transfer = 15
     }
 }
