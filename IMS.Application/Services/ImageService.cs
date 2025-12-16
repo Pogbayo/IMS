@@ -30,7 +30,6 @@ namespace IMS.Application.Services
 
             if (EntityId == Guid.Empty)
                 throw new ArgumentException("Record ID can not be null");
-            
 
             await using var stream = file.OpenReadStream();
 

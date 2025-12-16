@@ -122,7 +122,7 @@ namespace IMS.Application.Services
                     return Result<Guid>.FailureResponse("Supplier not found");
                 }
 
-                // Selecting the first warehouse ID in the list as the reference warehouse for SKU
+                // Selecting the first warehouse ID in the list as the referecne warehouse for SKU
                 var referenceWarehouseId = dto.Warehouses.FirstOrDefault();
                 if (referenceWarehouseId == Guid.Empty)
                 {
@@ -157,6 +157,7 @@ namespace IMS.Application.Services
                     .OrderByDescending(pw => pw.Product!.SKU)
                     .Select(p => p.Product!.SKU)
                     .FirstOrDefaultAsync();
+
 
                     var lastNumber = SkuGenerator.GetNumericPart(lastProductSku!);
                     int uniqueNumber = lastNumber + 1;

@@ -4,12 +4,14 @@ using IMS.Application.Interfaces;
 using IMS.Application.Interfaces.IAudit;
 using IMS.Domain.Entities;
 using IMS.Domain.Enums;
+using IMS.Infrastructure.Mailer;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
-using System.Net;
-using System.Net.Mail;
+
+
 
 namespace IMS.Application.Services
 {
@@ -19,13 +21,24 @@ namespace IMS.Application.Services
         private readonly RoleManager<IdentityRole> _roleManager;
         private readonly ILogger<UserService> _logger;
         private readonly IAuditService _audit;
-
+        private readonly IMailerService _mailer;
+        private readonly ICustomMemoryCache _cache;
+        private readonly IAppDbContext _context;
+        private readonly IImageService _imageService;
         public UserService(
+            IImageService imageService,
+            ICustomMemoryCache cache,
+            IMailerService mailer,
+            IAppDbContext context,
             UserManager<AppUser> userManager,
             RoleManager<IdentityRole> roleManager,
             ILogger<UserService> logger,
             IAuditService audit)
         {
+            _mailer = mailer;
+            _imageService = imageService;
+            _context = context;
+            _cache = cache;
             _userManager = userManager;
             _roleManager = roleManager;
             _logger = logger;
@@ -51,7 +64,9 @@ namespace IMS.Application.Services
 
                 _logger.LogInformation("User {UserName} created successfully", dto.UserName);
 
-                await SendEmail(dto.Email, $"You have been added to a company", $"Hello,\n\nYou have been added to the company: {dto.CompanyId}. You can now log in using your credentials.");
+                await _mailer.SendEmailAsync(dto.Email, $"You have been added to a company", $"Hello,\n\nYou have been added to the company: {dto.CompanyId}. You can now log in using your credentials.");
+
+
 
                 return Result<Guid>.SuccessResponse(user.Id);
             }
@@ -104,7 +119,7 @@ namespace IMS.Application.Services
                 await _audit.LogAsync(userId, Guid.Empty, AuditAction.Delete, $"User {user.Email} deleted.");
                 _logger.LogInformation("User {UserId} deleted", userId);
 
-                await SendEmail(user.Email!, "Removed from Company", $"Hello,\n\nYou have been removed from your company and no longer have access.");
+                await _mailer.SendEmailAsync(user.Email!, "Removed from Company", $"Hello,\n\nYou have been removed from your company and no longer have access.");
 
                 return Result<string>.SuccessResponse("User deleted successfully");
             }
@@ -117,20 +132,36 @@ namespace IMS.Application.Services
 
         public async Task<Result<UserDto>> GetUserById(Guid userId)
         {
+            var cacheKey = $"UserById{userId}";
             try
             {
-                var user = await _userManager.FindByIdAsync(userId.ToString());
-                if (user == null)
-                    return Result<UserDto>.FailureResponse("User not found");
-
-                var dto = new UserDto
+                if (!_cache.TryGetValue<UserDto>(cacheKey,out var cachedUser))
                 {
-                    Id = user.Id,
-                    UserName = user.UserName!,
-                    Email = user.Email!
-                };
+                    var user = await _userManager.FindByIdAsync(userId.ToString());
+                    if (user == null)
+                        return Result<UserDto>.FailureResponse("User not found");
 
-                return Result<UserDto>.SuccessResponse(dto);
+                    var dto = new UserDto
+                    {
+                        Id = user.Id,
+                        UserName = user.UserName!,
+                        Email = user.Email!
+                    };
+
+                    var options = new MemoryCacheEntryOptions
+                    {
+                        AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10),
+                        SlidingExpiration = TimeSpan.FromMinutes(2),
+                    };
+                    _cache.Set(cacheKey, cachedUser, options);
+
+                    return Result<UserDto>.SuccessResponse(dto);
+                }
+                else
+                {
+                    return Result<UserDto>.SuccessResponse(cachedUser, "User fetched successfully from Cache system");
+                }
+
             }
             catch (Exception ex)
             {
@@ -141,19 +172,52 @@ namespace IMS.Application.Services
 
         public async Task<Result<List<UserDto>>> GetUsersByCompany(Guid companyId)
         {
+            if (companyId == Guid.Empty)
+            { 
+                _logger.LogInformation("Company does not exist");
+                return Result<List<UserDto>>.FailureResponse("CompanyId can not be null");
+            }
+
+            var company = await _context.Companies.FindAsync(companyId);
+
+            if (company == null)
+            {
+                _logger.LogInformation("Company does not exist");
+                return Result<List<UserDto>>.FailureResponse("Company does not exist");
+            }
+
+            var cacheKey = $"company:{companyId}:users";
+
             try
             {
-                var users =  await _userManager.Users
-                    .Where(u => u.CompanyId == companyId)  
-                    .Select(u => new UserDto
-                    {
-                        Id = u.Id,
-                        UserName = u.UserName!,
-                        Email = u.Email!
-                    })
-                    .ToListAsync();
+                if (!_cache.TryGetValue<List<UserDto>>(cacheKey, out var cachedCompanyUsers))
+                {
+                    _logger.LogInformation("Data not found in the cache system, hitting the databse...");
+                    var users = await _userManager.Users
+                   .Where(u => u.CompanyId == companyId)
+                   .Select(u => new UserDto
+                   {
+                       Id = u.Id,
+                       UserName = u.UserName!,
+                       Email = u.Email!
+                   })
+                   .ToListAsync();
 
-                return Result<List<UserDto>>.SuccessResponse(users);
+                    var options = new MemoryCacheEntryOptions
+                    {
+                        AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10),
+                        SlidingExpiration = TimeSpan.FromMinutes(2),
+                    };
+                    _cache.Set(cacheKey,cachedCompanyUsers,options);
+
+                    _logger.LogInformation("Data successfully retrieved from the database...");
+                    return Result<List<UserDto>>.SuccessResponse(users);
+                }
+                else
+                {
+                    _logger.LogInformation("Successfully retrieved data from the Cached system");
+                    return Result<List<UserDto>>.SuccessResponse(cachedCompanyUsers, "Data successfully retrieved from the Cached system");
+                }
             }
             catch (Exception ex)
             {
@@ -164,6 +228,18 @@ namespace IMS.Application.Services
 
         public async Task<Result<string>> AddRoleToUser(Guid userId, string role)
         {
+            if (userId == Guid.Empty)
+            {
+                _logger.LogInformation("UserId can not be null...");
+                return Result<string>.FailureResponse("UserId can not be null");
+            }
+
+            if (string.IsNullOrEmpty(role))
+            {
+                _logger.LogInformation("URole can not be null");
+                return Result<string>.FailureResponse("Please, provide a role...");
+            }
+
             try
             {
                 var user = await _userManager.FindByIdAsync(userId.ToString());
@@ -180,7 +256,9 @@ namespace IMS.Application.Services
                 await _audit.LogAsync(userId, Guid.Empty, AuditAction.Update, $"Role {role} added to user {user.Email}.");
                 _logger.LogInformation("Role {Role} added to user {UserId}", role, userId);
 
-                await SendEmail(user.Email!, "Role Updated", $"Hello,\n\nYour role has been updated to: {role}.");
+                await _mailer.SendEmailAsync(user.Email!, "Role Updated!", $"Hello,\n\nYour role has been updated to: {role}.");
+
+                _cache.Remove($"UserById{userId}");
 
                 return Result<string>.SuccessResponse("Role added successfully");
             }
@@ -193,15 +271,26 @@ namespace IMS.Application.Services
 
         public async Task<Result<string>> UpdateProfileImage(Guid userId, IFormFile file)
         {
+            if (userId == Guid.Empty)
+            {
+                _logger.LogInformation("PUseId can not be null");
+                return Result<string>.FailureResponse("UserId can not be null");
+            }
+
+            if (file == null || file.Length == 0 )
+            {
+                _logger.LogInformation("File can not be null...");
+                return Result<string>.FailureResponse("Invalid file format...");
+            }
+
             try
             {
                 var user = await _userManager.FindByIdAsync(userId.ToString());
                 if (user == null)
                     return Result<string>.FailureResponse("User not found");
 
-                using var stream = new MemoryStream();
-                await file.CopyToAsync(stream);
-                user.GetType().GetProperty("ProfileImage")?.SetValue(user, stream.ToArray());
+                var UploadResult = await _imageService.UploadImageAsync(file, "user", userId);
+                user.ImageUrl = UploadResult;
 
                 var result = await _userManager.UpdateAsync(user);
                 if (!result.Succeeded)
@@ -210,43 +299,14 @@ namespace IMS.Application.Services
                 await _audit.LogAsync(userId, Guid.Empty, AuditAction.Update, $"Profile image updated for user {user.Email}.");
                 _logger.LogInformation("Profile image updated for user {UserId}", userId);
 
+                _cache.Remove($"UserById{userId}");
+
                 return Result<string>.SuccessResponse("Profile image updated successfully");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error updating profile image for user {UserId}", userId);
                 return Result<string>.FailureResponse("Failed to update profile image");
-            }
-        }
-
-        private async Task SendEmail(string email, string subject, string body)
-        {
-            try
-            {
-                var smtpClient = new SmtpClient("smtp.your-email-provider.com")
-                {
-                    Port = 587,
-                    Credentials = new NetworkCredential("your-email@example.com", "your-email-password"),
-                    EnableSsl = true,
-                };
-
-                var message = new MailMessage
-                {
-                    From = new MailAddress("your-email@example.com", "IMS System"),
-                    Subject = subject,
-                    Body = body,
-                    IsBodyHtml = false
-                };
-
-                message.To.Add(email);
-
-                await smtpClient.SendMailAsync(message);
-
-                _logger.LogInformation("Email sent to {Email}", email);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to send email to {Email}", email);
             }
         }
     }

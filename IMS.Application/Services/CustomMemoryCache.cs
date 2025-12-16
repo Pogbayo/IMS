@@ -39,5 +39,23 @@ namespace IMS.Application.Services
         {
             return _memoryCache.TryGetValue(key, out value!);
         }
+
+        public async Task<T?> GetOrCreateAsync<T>( string key,Func<ICacheEntry, Task<T?>> factory)
+        {
+            if (_memoryCache.TryGetValue(key, out T? cachedValue))
+                return cachedValue;
+
+            using var entry = _memoryCache.CreateEntry(key);
+            var value = await factory(entry);
+
+            if (value == null)
+            {
+                _memoryCache.Remove(key);
+                return default;
+            }
+
+            entry.Value = value;
+            return value;
+        }
     }
 }
