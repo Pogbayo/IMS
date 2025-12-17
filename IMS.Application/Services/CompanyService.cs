@@ -2,7 +2,6 @@
 using IMS.Application.ApiResponse;
 using IMS.Application.DTO.Company;
 using IMS.Application.DTO.Product;
-using System.Text.Json;
 using IMS.Application.Interfaces;
 using IMS.Application.Interfaces.IAudit;
 using IMS.Domain.Entities;
@@ -11,7 +10,7 @@ using IMS.Infrastructure.Mailer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-
+using System.Text.Json;
 
 namespace IMS.Application.Services
 {
@@ -25,6 +24,8 @@ namespace IMS.Application.Services
         private readonly ICurrentUserService _currentUserService;
         private readonly ICompanyCalculations _companyCalculations;
         private readonly IWarehouseService _warehouseService;
+        private readonly ICustomMemoryCache _cache;
+
         public CompanyService(
             ILogger<CompanyService> logger,
             IWarehouseService warehouseService,
@@ -33,8 +34,9 @@ namespace IMS.Application.Services
             RoleManager<IdentityRole> roleManager,
             IAuditService audit,
             ICurrentUserService currentUserService,
-            ICompanyCalculations companyCalculations
-            )
+            ICompanyCalculations companyCalculations,
+            ICustomMemoryCache cache
+        )
         {
             _logger = logger;
             _context = context;
@@ -44,6 +46,7 @@ namespace IMS.Application.Services
             _audit = audit;
             _companyCalculations = companyCalculations;
             _currentUserService = currentUserService;
+            _cache = cache;
         }
 
         public async Task<Result<CreatedCompanyDto>> RegisterCompanyAndAdmin(CompanyCreateDto dto)
@@ -51,9 +54,7 @@ namespace IMS.Application.Services
             var currentuser = _currentUserService.GetCurrentUserId();
 
             if (dto == null)
-            {
                 throw new ArgumentNullException(nameof(dto), "Incomplete details -- Company details are required.");
-            }
 
             if (string.IsNullOrWhiteSpace(dto.CompanyName))
                 throw new ArgumentNullException(nameof(dto.CompanyName));
@@ -73,8 +74,7 @@ namespace IMS.Application.Services
                 foreach (var item in dto.Warehouses)
                 {
                     var result = await _warehouseService.CreateWarehouse(item);
-                    if (!result.Success)
-                        continue;
+                    if (!result.Success) continue;
 
                     var warehouseEntity = await _context.Warehouses.FindAsync(result.Data);
                     if (warehouseEntity != null)
@@ -92,12 +92,7 @@ namespace IMS.Application.Services
                 _context.Companies.Add(company);
                 await _context.SaveChangesAsync();
 
-                await _audit.LogAsync(
-                    userId: currentuser,
-                    companyId: company.Id,
-                    action: AuditAction.Create,
-                    description: $"Company '{company.Name}' created with email '{company.Email}'."
-                );
+                await _audit.LogAsync(currentuser, company.Id, AuditAction.Create, $"Company '{company.Name}' created with email '{company.Email}'.");
 
                 var AppUser = new AppUser
                 {
@@ -109,13 +104,6 @@ namespace IMS.Application.Services
                     IsCompanyAdmin = true
                 };
 
-                //await _audit.LogAsync(
-                //    userId: AppUser.Id,
-                //    companyId: company.Id,
-                //    action: AuditAction.Create,
-                //    description: $"Admin user '{AppUser.FirstName} {AppUser.LastName}' created for company '{company.Name}'."
-                //);
-
                 var IdentityResult = await _userManager.CreateAsync(AppUser, dto.Password);
 
                 if (!IdentityResult.Succeeded)
@@ -124,30 +112,17 @@ namespace IMS.Application.Services
                     return Result<CreatedCompanyDto>.FailureResponse($"Error registering user: {errorMessages}");
                 }
 
-                await _audit.LogAsync(
-                   userId: AppUser.Id,
-                   companyId: company.Id,
-                   action: AuditAction.Create,
-                   description: $"Admin user '{AppUser.FirstName} {AppUser.LastName}' registered with company '{company.Name}'."
-               );
+                await _audit.LogAsync(AppUser.Id, company.Id, AuditAction.Create, $"Admin user '{AppUser.FirstName} {AppUser.LastName}' registered with company '{company.Name}'.");
 
                 if (!await _roleManager.RoleExistsAsync("Admin"))
-                {
                     await _roleManager.CreateAsync(new IdentityRole("Admin"));
-                }
 
                 await _userManager.AddToRoleAsync(AppUser, "Admin");
 
-                await _audit.LogAsync(
-                    userId: AppUser.Id,
-                    companyId: company.Id,
-                    action: AuditAction.Update,
-                    description: $"Admin role assigned to user '{AppUser.Email}'."
-                );
+                await _audit.LogAsync(AppUser.Id, company.Id, AuditAction.Update, $"Admin role assigned to user '{AppUser.Email}'.");
 
                 company.Users.Add(AppUser);
                 company.CreatedById = AppUser.Id;
-
                 await _context.SaveChangesAsync();
 
                 var createdCompanyDto = new CreatedCompanyDto
@@ -169,6 +144,7 @@ namespace IMS.Application.Services
 
                 await transaction.CommitAsync();
 
+                // Confirmation email
                 try
                 {
                     string confirmationUrl = "https://superaqual-nelle-aerogenically.ngrok-free.dev/suppliers";
@@ -178,50 +154,31 @@ namespace IMS.Application.Services
                         mailer.SendEmailAsync(AppUser.Email!, "Confirm Your Account", body)
                     );
 
-                    await _audit.LogAsync(
-                        userId: AppUser.Id,
-                        companyId: company.Id,
-                        action: AuditAction.Create,
-                        description: $"Confirmation email sent to '{AppUser.Email}'."
-                    );
+                    await _audit.LogAsync(AppUser.Id, company.Id, AuditAction.Create, $"Confirmation email sent to '{AppUser.Email}'.");
                 }
                 catch (Exception ex)
                 {
                     _logger.LogInformation(ex.Message);
-
-                    await _audit.LogAsync(
-                       userId: AppUser.Id,
-                       companyId: company.Id,
-                       action: AuditAction.Update,
-                       description: $"An unknwown error occurred while assigning role to User: {AppUser.Id}'."
-                     );
+                    await _audit.LogAsync(AppUser.Id, company.Id, AuditAction.Update, $"Unknown error while sending confirmation email for User: {AppUser.Id}");
                 }
 
-                _logger.LogInformation("Transaction complete");
                 return Result<CreatedCompanyDto>.SuccessResponse(createdCompanyDto);
             }
             catch (Exception)
             {
                 await transaction.RollbackAsync();
                 _logger.LogInformation("Transaction not complete");
-                return Result<CreatedCompanyDto>.FailureResponse("Trnasaction not complete");
+                return Result<CreatedCompanyDto>.FailureResponse("Transaction not complete");
             }
         }
 
         public async Task<Result<string>> DeleteCompany(Guid companyId)
         {
             var currentUserId = _currentUserService.GetCurrentUserId();
-            _logger.LogInformation($"{currentUserId} is Attempting to delete {companyId}");
             if (companyId == Guid.Empty)
             {
-                _logger.LogInformation($"Please, provide an Id");
-                await _audit.LogAsync(
-                    currentUserId,
-                    companyId,
-                    AuditAction.Failed,
-                    "Attempted to delete company but Id was empty"
-                );
-                return Result<string>.FailureResponse("Id can not be null;");
+                await _audit.LogAsync(currentUserId, companyId, AuditAction.Failed, "Attempted to delete company but Id was empty");
+                return Result<string>.FailureResponse("Id cannot be null");
             }
 
             try
@@ -229,160 +186,100 @@ namespace IMS.Application.Services
                 var company = await _context.Companies.FindAsync(companyId);
                 if (company == null)
                 {
-                    _logger.LogInformation($"Company not found");
-                    await _audit.LogAsync(
-                        currentUserId,
-                        companyId,
-                        AuditAction.Failed,
-                        "Attempted to delete company but company not found"
-                    );
-                    return Result<string>.FailureResponse("Company with provided Id not found");
+                    await _audit.LogAsync(currentUserId, companyId, AuditAction.Failed, "Attempted to delete company but company not found");
+                    return Result<string>.FailureResponse("Company not found");
                 }
 
                 company.MarkAsDeleted();
                 await _context.SaveChangesAsync();
 
-                await _audit.LogAsync(
-                    currentUserId,
-                    companyId,
-                    AuditAction.Delete,
-                    "Company deleted successfully"
-                );
-                return Result<string>.SuccessResponse("Company deleted successfully");
-            }
-            catch (DbUpdateException ex)
-            {
-                _logger.LogError(ex, "Database error deleting company");
+                await _audit.LogAsync(currentUserId, companyId, AuditAction.Delete, "Company deleted successfully");
 
-                await _audit.LogAsync(
-                    currentUserId,
-                    companyId,
-                    AuditAction.Failed,
-                    "Database error deleting company"
-                );
-                return Result<string>.FailureResponse("A database error occurred while deleting the company");
+                // Invalidate cache for this company
+                _cache.Remove($"Company_{companyId}");
+
+                return Result<string>.SuccessResponse("Company deleted successfully");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Unexpected error deleting company");
-                await _audit.LogAsync(
-                    currentUserId,
-                    companyId,
-                    AuditAction.Failed,
-                    "Unexpected error deleting company"
-                );
+                await _audit.LogAsync(currentUserId, companyId, AuditAction.Failed, "Unexpected error deleting company");
                 return Result<string>.FailureResponse("An unexpected error occurred while deleting the company");
             }
         }
 
         public async Task<Result<CompanyDto>> GetCompanyById(Guid companyId)
         {
-            var userId = _currentUserService.GetCurrentUserId();
-            var today = DateTime.UtcNow.Date;
+            var cacheKey = $"Company_{companyId}";
 
-            if (companyId == Guid.Empty)
+            var result = await _cache.GetOrCreateAsync<Result<CompanyDto>>(cacheKey, async cacheEntry =>
             {
-                _logger.LogWarning("Please, provide an Id to complete request");
-                await _audit.LogAsync(
-                    userId,
-                    companyId,
-                    AuditAction.Failed,
-                    "Attempted to fetch company but provided an empty Id"
-                );
+                cacheEntry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10);
 
-                return Result<CompanyDto>.FailureResponse("Id cannot be null");
-            }
+                var userId = _currentUserService.GetCurrentUserId();
+                var today = DateTime.UtcNow.Date;
 
-            var todayStat = await _context.CompanyDailyStats.FirstOrDefaultAsync(st => st.CompanyId == companyId && st.StatDate == today);
+                if (companyId == Guid.Empty)
+                {
+                    await _audit.LogAsync(userId, companyId, AuditAction.Failed, "Attempted to fetch company but Id is empty");
+                    return Result<CompanyDto>.FailureResponse("Id cannot be null");
+                }
 
-            var productWarehouses = _context.ProductWarehouses
-                .Include(pw => pw.Product)
-                .Where(pw => pw.Product!.CompanyId == companyId);
+                var todayStat = await _context.CompanyDailyStats.FirstOrDefaultAsync(st => st.CompanyId == companyId && st.StatDate == today);
 
-            var warehouses = _context.Warehouses
-                .Include(c => c.ProductWarehouses)
-                    .ThenInclude(pw => pw.Product)
-                .Where(c => c.CompanyId == companyId);
-
-            var stockTransactions = _context.StockTransactions
-                .Include(st => st.ProductWarehouse)
+                var stockTransactions = _context.StockTransactions
+                    .Include(st => st.ProductWarehouse)
                     .ThenInclude(pw => pw!.Product)
-                .Where(st => st.CompanyId == companyId);
+                    .Where(st => st.CompanyId == companyId);
 
-            var company = await _context.Companies.FirstOrDefaultAsync(c => c.Id == companyId);
-            if (company == null)
-            {
-                _logger.LogWarning("Company not found");
+                var company = await _context.Companies.FirstOrDefaultAsync(c => c.Id == companyId);
+                if (company == null)
+                {
+                    await _audit.LogAsync(userId, companyId, AuditAction.Failed, "Company not found");
+                    return Result<CompanyDto>.FailureResponse("Company not found");
+                }
 
-                await _audit.LogAsync(
-                    userId,
-                    companyId,
-                    AuditAction.Failed,
-                    "Attempted to fetch company by Id but company not found"
-                );
+                var ProductsCount = company.Products.Count();
 
-                return Result<CompanyDto>.FailureResponse("Company not found");
-            }
+                var companyDto = new CompanyDto
+                {
+                    Id = company.Id,
+                    Name = company.Name,
+                    Email = company.Email,
+                    HeadOffice = company.HeadOffice,
+                    CreatedAt = company.CreatedAt,
+                    UpdatedAt = company.UpdatedAt,
+                    TotalPurchases = await _companyCalculations.CalculateTotalPurchases(stockTransactions),
+                    SalesTrend = await _companyCalculations.CalculateTotalSalesTrend(stockTransactions),
+                    TotalSalesPerMonth = await _companyCalculations.TotalSalesPerMonth(stockTransactions),
+                    TotalNumberOfProducts = ProductsCount,
+                    TotalInventoryValue = todayStat != null ? todayStat.TotalInventoryValue : 0m,
 
-            var ProductsCount = company.Products.Count();
+                    TopProductsBySales = todayStat != null
+                        ? JsonSerializer.Deserialize<List<TopProductDto>>(todayStat.TopProductsBySalesJson) ?? new List<TopProductDto>()
+                        : new List<TopProductDto>(),
 
-            var companyDto = new CompanyDto
-            {
-                Id = company.Id,
-                Name = company.Name,
-                Email = company.Email,
-                HeadOffice = company.HeadOffice,
-                CreatedAt = company.CreatedAt,
-                UpdatedAt = company.UpdatedAt,
-                TotalPurchases = await _companyCalculations.CalculateTotalPurchases(stockTransactions),
-                SalesTrend = await _companyCalculations.CalculateTotalSalesTrend(stockTransactions),
-                TotalSalesPerMonth = await _companyCalculations.TotalSalesPerMonth(stockTransactions),
-                TotalNumberOfProducts = ProductsCount,
-                TotalInventoryValue = todayStat != null ? todayStat.TotalInventoryValue : 0m,
+                    LowOnStockProducts = todayStat != null
+                        ? JsonSerializer.Deserialize<List<LowOnStockProduct>>(todayStat.LowOnStockProductsJson) ?? new List<LowOnStockProduct>()
+                        : new List<LowOnStockProduct>()
+                };
 
-                TopProductsBySales = todayStat != null
-                    ? JsonSerializer.Deserialize<List<TopProductDto>>(todayStat.TopProductsBySalesJson) ?? new List<TopProductDto>()
-                    : new List<TopProductDto>(),
+                await _audit.LogAsync(userId, companyId, AuditAction.Read, $"User: {userId} viewed company dashboard for: {company.Name}");
+                return Result<CompanyDto>.SuccessResponse(companyDto);
+            });
 
-                LowOnStockProducts = todayStat != null
-                   ? JsonSerializer.Deserialize<List<LowOnStockProduct>>(todayStat.LowOnStockProductsJson) ?? new List<LowOnStockProduct>()
-                   : new List<LowOnStockProduct>()
-            };
-
-            await _audit.LogAsync(
-                userId,
-                companyId,
-                AuditAction.Read,
-                $"User: {userId} viewed company dashboard for: {company.Name}"
-            );
-            return Result<CompanyDto>.SuccessResponse(companyDto);
+            return result ?? Result<CompanyDto>.FailureResponse("Failed to retrieve company data from cache");
         }
 
         public async Task<Result<string>> UpdateCompany(Guid companyId, CompanyUpdateDto dto)
         {
             var currentUserId = _currentUserService.GetCurrentUserId();
 
-            var company = await _context.Companies
-                .FirstOrDefaultAsync(c => c.Id == companyId);
-
+            var company = await _context.Companies.FirstOrDefaultAsync(c => c.Id == companyId);
             if (company == null)
             {
-                _logger.LogWarning("Company not found");
-
-                await _audit.LogAsync(
-                    currentUserId,
-                    companyId,
-                    AuditAction.Failed,
-                    "Attempted to fetch company by Id to be modified but company not found"
-                );
-
+                await _audit.LogAsync(currentUserId, companyId, AuditAction.Failed, "Attempted to update company but not found");
                 return Result<string>.FailureResponse("Company not found");
-            }
-
-            if (dto is null)
-            {
-                _logger.LogWarning("Bad request");
-                return Result<string>.FailureResponse("Invalid request...Please, provide accurate details");
             }
 
             company.Name = dto?.Name ?? string.Empty;
@@ -392,52 +289,45 @@ namespace IMS.Application.Services
 
             await _context.UpdateChangesAsync(company);
 
-            await _audit.LogAsync(
-                   currentUserId,
-                   companyId,
-                   AuditAction.Failed,
-                   $"Company: {companyId} updated by {currentUserId}"
-             );
+            await _audit.LogAsync(currentUserId, companyId, AuditAction.Update, $"Company: {companyId} updated by {currentUserId}");
+
+            // Invalidate cache for this company
+            _cache.Remove($"Company_{companyId}");
 
             return Result<string>.SuccessResponse("Company updated Successfully");
         }
 
         public async Task<Result<List<CompanyDto>>> GetAllCompanies(int pageSize, int pageNumber)
         {
-            if (pageNumber < 0 && pageSize < 0)
-            {
-                _logger.LogWarning("PageNumber and pageSie cannot be less than 0");
-                return Result<List<CompanyDto>>.FailureResponse("PageNumber and PageSize can not be less than 0");
-            }
+            var cacheKey = $"Companies_Page{pageNumber}_Size{pageSize}";
 
-            try
+            var result = await _cache.GetOrCreateAsync<Result<List<CompanyDto>>>(cacheKey, async cacheEntry =>
             {
+                cacheEntry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10);
+
+                if (pageNumber < 1 || pageSize < 1)
+                    return Result<List<CompanyDto>>.FailureResponse("PageNumber and PageSize cannot be less than 1");
+
                 var companies = await _context.Companies
-                  .Skip((pageNumber - 1) * pageSize)
-                  .Take(pageSize)
-                  .Select(c => new CompanyDto
-                  {
-                      Id = c.Id,
-                      Name = c.Name,
-                      Email = c.Email,
-                      HeadOffice = c.HeadOffice
-                  })
-                  .ToListAsync();
+                    .Skip((pageNumber - 1) * pageSize)
+                    .Take(pageSize)
+                    .Select(c => new CompanyDto
+                    {
+                        Id = c.Id,
+                        Name = c.Name,
+                        Email = c.Email,
+                        HeadOffice = c.HeadOffice
+                    })
+                    .ToListAsync();
 
                 if (!companies.Any())
-                {
-                    _logger.LogInformation("No companies found for page {PageNumber} with page size {PageSize}", pageNumber, pageSize);
                     return Result<List<CompanyDto>>.FailureResponse("No companies found");
-                }
 
                 return Result<List<CompanyDto>>.SuccessResponse(companies);
-            }
-            catch (Exception ex)
-            {
+            }) ?? Result<List<CompanyDto>>.FailureResponse("Failed to fetch companies from cache");
 
-                _logger.LogError(ex, "Error fetching companies for page {PageNumber}", pageNumber);
-                return Result<List<CompanyDto>>.FailureResponse("An error occurred while fetching companies");
-            }
+            return result;
         }
     }
 }
+
