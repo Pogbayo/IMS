@@ -12,6 +12,7 @@ namespace IMS.Application.DTO.Product
 
     public class SupplierInfo
     {
+        public Guid Id { get; set; }
         public string? SupplierName { get; set; }
         public string? PhoneNumber { get; set; }
         public string? Email { get; set; }
@@ -31,5 +32,25 @@ namespace IMS.Application.DTO.Product
         public ProductStockLevel StockLevel { get; set; }
         public SupplierInfo SupplierInfo { get; set; } = default!;
         public List<StockTransactionDto> Transactions { get; set; } = new List<StockTransactionDto>();
+    }
+
+    public class ProductSummaryCache
+    {
+        public Guid Id { get; set; }
+        public string Name { get; set; } = "";
+        public string SKU { get; set; } = "";
+        public string ImgUrl { get; set; } = "";
+        public decimal RetailPrice { get; set; }
+        public decimal CostPrice { get; set; }
+        public decimal Profit { get; set; }
+        public SupplierInfo SupplierInfo { get; set; } = new();
+
+    }
+
+    public class ProductStockDto
+    {
+        public List<WarehouseCount> Warehouses { get; set; } = [];
+        public int OverAllCount { get; set; }
+        public ProductStockLevel StockLevel { get; set; }
     }
 }

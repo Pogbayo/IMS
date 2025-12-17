@@ -11,7 +11,11 @@ using IMS.Domain.Enums;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Primitives;
+using System.ComponentModel.Design;
+using System.Xml.Linq;
 
 namespace IMS.Application.Services
 {
@@ -24,9 +28,10 @@ namespace IMS.Application.Services
         private readonly UserManager<AppUser> _userManager;
         private readonly IImageService _imageService;
         private readonly IStockTransactionService _stockTransaction;
-
-        public ProductService(IStockTransactionService stockTransaction,IImageService imageService,UserManager<AppUser> userManager,ILogger<ProductService> logger, IAppDbContext context, IAuditService audit, ICurrentUserService currentUserService)
+        private readonly ICustomMemoryCache _cache;
+        public ProductService(ICustomMemoryCache cache,IStockTransactionService stockTransaction,IImageService imageService,UserManager<AppUser> userManager,ILogger<ProductService> logger, IAppDbContext context, IAuditService audit, ICurrentUserService currentUserService)
         {
+            _cache = cache;
             _stockTransaction = stockTransaction;
             _imageService = imageService;
             _userManager = userManager;
@@ -35,6 +40,7 @@ namespace IMS.Application.Services
             _audit = audit;
             _currentUserService = currentUserService;
         }
+
 
         private async Task<Guid> GetCurrentUserCompanyIdAsync()
         {
@@ -48,6 +54,16 @@ namespace IMS.Application.Services
             //    _logger.LogWarning("User {UserId} does not belong to any company", userId);
 
             return companyId;
+        }
+
+        private void RemoveCompanyProductsCache(Guid companyId)
+        {
+            var prefix = $"Company:{companyId}:Products:";
+
+            foreach (var key in _cache.GetKeys().Where(k => k.StartsWith(prefix)))
+            {
+                _cache.Remove(key);
+            }
         }
 
         public async Task<Result<dynamic>> CalculateNewStockDetails(TransactionType transactionType, int PreviousQuantity, int QuantityChanged, Warehouse FromWarehouse, Warehouse ToWarehouse)
@@ -230,6 +246,17 @@ namespace IMS.Application.Services
 
                             await _stockTransaction.LogTransaction
                                 (transactionDto);
+
+                            foreach (var item in dto.Warehouses)
+                            {
+                                _cache.RemoveByPrefix($"Warehouse:{item}:");
+                            }
+
+                            _cache.RemoveByPrefix($"Company:{companyId}:Products:");
+                            _cache.RemoveByPrefix($"Products:Filtered:");
+                            _cache.RemoveByPrefix($"Products:SKU:");
+
+                            RemoveCompanyProductsCache(Product.CompanyId);
                             return Result<Guid>.SuccessResponse(Product.Id);
                         }
                     }
@@ -262,207 +289,338 @@ namespace IMS.Application.Services
             var userId = _currentUserService.GetCurrentUserId();
             var companyId = await GetCurrentUserCompanyIdAsync();
 
+
             _logger.LogInformation("User {UserId} requested product with Id {ProductId}", userId, productId);
+
 
             if (productId == Guid.Empty)
             {
-                _logger.LogWarning("User {UserId} attempted to fetch product with empty Id", userId);
-                await _audit.LogAsync(userId, companyId, Domain.Enums.AuditAction.Read, "Attempted to fetch product with empty Id");
-                return Result<ProductDto>.FailureResponse("Bad Request: Product Id cannot be empty");
+                await _audit.LogAsync(
+                    userId,
+                    companyId,
+                    AuditAction.Read,
+                    "Attempted to fetch product with empty Id");
+
+                return Result<ProductDto>
+                    .FailureResponse("Bad Request: Product Id cannot be empty");
             }
 
-            var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == productId);
-            if (product == null)
+            var summaryCacheKey = $"Product:{productId}:Summary";
+
+            var stockCacheKey = $"Product:{productId}:Stock";
+
+            var transactionsCacheKey = $"Product:{productId}:Transactions";
+
+
+            if (!_cache.TryGetValue(summaryCacheKey, out ProductSummaryCache? summary))
             {
-                _logger.LogWarning("Product with Id {ProductId} not found", productId);
-                await _audit.LogAsync(userId, companyId, Domain.Enums.AuditAction.Read, $"Attempted to fetch non-existing product with Id {productId}");
-                return Result<ProductDto>.FailureResponse("Product not found");
+                _logger.LogInformation(
+                  "Summary cache miss for product {ProductId}",
+                  productId);
+
+                summary = await _context.Products
+                     .Where(p => p.Id == productId)
+                     .Select(p => new ProductSummaryCache
+                     {
+                         Id = p.Id,
+                         Name = p.Name,
+                         SKU = p.SKU,
+                         ImgUrl = p.ImgUrl!,
+                         RetailPrice = p.RetailPrice,
+                         CostPrice = p.CostPrice,
+                         Profit = p.RetailPrice - p.CostPrice,
+                         SupplierInfo = new SupplierInfo
+                         {
+                             Id = p.Supplier.Id,
+                             SupplierName = p.Supplier.Name,
+                             PhoneNumber = p.Supplier.PhoneNumber,
+                             Email = p.Supplier.Email
+                         }
+                     }).FirstOrDefaultAsync();
+
+                if (summary == null)
+                {
+                    _logger.LogWarning("Product not found");
+
+                    await _audit.LogAsync(
+                       userId,
+                       companyId,
+                       AuditAction.Read,
+                       $"Attempted to fetch non-existing product {productId}");
+
+                    return Result<ProductDto>.FailureResponse("Product not found in the Database");
+                }
+
+                _cache.Set(summaryCacheKey, summary, new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(30)
+                });
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Summary cache hit for product {ProductId}",
+                    productId);
             }
 
-            _logger.LogInformation("Product {ProductName} (Id {ProductId}) found", product.Name, product.Id);
 
-            var warehouseProductQuantity = await _context.ProductWarehouses
-                .Where(pw => pw.ProductId == productId)
-                .Select(pw => new WarehouseCount
-                {
-                    WarehouseName = pw.Warehouse!.Name,
-                    Quantity = pw.Quantity
-                })
-                .ToListAsync();
-
-            _logger.LogInformation("Fetched {WarehouseCount} warehouse quantities for product {ProductId}", warehouseProductQuantity.Count, productId);
-
-            var overAllCount = await _context.ProductWarehouses
-                .Where(pw => pw.ProductId == productId)
-                .SumAsync(pw => pw.Quantity);
-
-            ProductStockLevel stockLevel = overAllCount switch
+            if (!_cache.TryGetValue(stockCacheKey, out ProductStockDto cachedStockValue))
             {
-                0 => ProductStockLevel.Low,
-                <= 15 => ProductStockLevel.Medium,
-                <= 30 => ProductStockLevel.High,
-                _ => ProductStockLevel.OutOfStock
-            };
+                _logger.LogInformation(
+                    "Stock cache miss for product {ProductId}",
+                    productId);
 
-            var pw = await _context.ProductWarehouses
-                .Where(pw => pw.ProductId == productId)
-                .ToListAsync();
+                var warehouses = await _context.ProductWarehouses
+                    .Where(pw => pw.ProductId == productId)
+                    .Include(pw => pw.Warehouse)
+                    .ToListAsync();
 
-            _logger.LogInformation("Calculated overall count {OverAllCount} and stock level {StockLevel} for product {ProductId}", overAllCount, stockLevel, productId);
+                var overAllCount = warehouses.Sum(w => w.Quantity);
 
-            var supplierInfo = await _context.Suppliers
-                .Where(s => s.Id == product.SupplierId)
-                .Select(s => new SupplierInfo
+                cachedStockValue = new ProductStockDto
                 {
-                    SupplierName = s.Name,
-                    PhoneNumber = s.PhoneNumber,
-                    Email = s.Email
-                })
-                .FirstOrDefaultAsync() ?? new SupplierInfo { Email = "", PhoneNumber = "", SupplierName = "" };
-
-            _logger.LogInformation("Fetched supplier info for product {ProductId}", productId);
-
-            var stockTransactions = await _context.StockTransactions
-                .Where(st => st.ProductWarehouse!.ProductId == productId)
-                .Include(st => st.ProductWarehouse) 
-                .ToListAsync();
-
-
-            //This first approach wasn't feasible because I needed a method that was awaited to calculate new stock level but couldn't be inluded in an EF core Select method
-            //var productTransactions = await _context.StockTransactions
-            //    .Where(st => st.ProductWarehouse!.ProductId == productId)
-            //    .Select(st => new StockTransactionDto
-            //    {
-            //        QuantityChanged = st.QuantityChanged,
-            //        Type = st.Type,
-            //        Note = st.Note,
-            //        TransactionDate = st.TransactionDate,
-            //        WarehouseId = st.ProductWarehouse!.WarehouseId,
-            //        NewStockLevel =
-            //    })
-            //    .ToListAsync();
-                  
-
-            var productTransactions = new List<StockTransactionDto>();
-
-            foreach (var st in stockTransactions)
-            {
-                object? newStockData;
-
-                if (st.Type == TransactionType.Transfer)
-                {
-                    var result = await CalculateNewStockDetails(
-                    st.Type,
-                    st.ProductWarehouse!.Quantity,
-                    st.QuantityChanged,
-                    st.FromWarehouse!,
-                    st.ToWarehouse!);
-
-                    newStockData = result;
-                }
-                else if (st.Type == TransactionType.Purchase)
-                {
-                    newStockData = new PurchaseStockLevelDto
+                    Warehouses = warehouses.Select(w => new WarehouseCount
                     {
-                        PreviousQuantity = st.ProductWarehouse!.Quantity,
-                        NewQuantity = st.ProductWarehouse.Quantity + st.QuantityChanged
-                    };
-                }
-                else if (st.Type == TransactionType.Sale)
-                {
-                    newStockData = new SaleStockLevelDto
-                    {
-                        PreviousQuantity = st.ProductWarehouse!.Quantity,
-                        NewQuantity = st.ProductWarehouse.Quantity - st.QuantityChanged
-                    };
-                }
-                else
-                {
-                    newStockData = null;
-                }
+                        WarehouseName = w.Warehouse!.Name,
+                        Quantity = w.Quantity
+                    }).ToList(),
 
-                var productTransaction = new StockTransactionDto
-                {
-                    QuantityChanged = st.QuantityChanged,
-                    Type = st.Type,
-                    Note = st.Note,
-                    TransactionDate = st.TransactionDate,
-                    WarehouseId = st.ProductWarehouse!.WarehouseId,
-                    WarehouseName = st.FromWarehouse!.Name,
-                    NewStockLevel = newStockData
+                    OverAllCount = overAllCount,
+
+                    StockLevel = overAllCount switch
+                    {
+                        0 => ProductStockLevel.Low,
+                        <= 15 => ProductStockLevel.Medium,
+                        <= 30 => ProductStockLevel.High,
+                        _ => ProductStockLevel.OutOfStock
+                    }
                 };
 
-                productTransactions.Add(productTransaction);
+                _cache.Set(stockCacheKey, cachedStockValue,
+                   new MemoryCacheEntryOptions
+                   {
+                       AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5)
+                   });
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Stock cache hit for product {ProductId}",
+                    productId);
             }
 
-            _logger.LogInformation("Fetched {TransactionCount} stock transactions for product {ProductId}", productTransactions.Count, productId);
+
+            if (!_cache.TryGetValue(transactionsCacheKey, out List<StockTransactionDto> CachedTransactions))
+            {
+                _logger.LogInformation(
+                   "Transactions cache miss for product {ProductId}",
+                   productId);
+
+                var stockTransactions = await _context.StockTransactions
+                    .Where(st => st.ProductWarehouse!.ProductId == productId)
+                    .Include(st => st.ProductWarehouse)
+                    .ToListAsync();
+
+                CachedTransactions = new List<StockTransactionDto>();
+
+                foreach (var st in stockTransactions)
+                {
+                    object? newStockData = null;
+
+                    if (st.Type == TransactionType.Transfer)
+                    {
+                        var result = await CalculateNewStockDetails(
+                        st.Type,
+                        st.ProductWarehouse!.Quantity,
+                        st.QuantityChanged,
+                        st.FromWarehouse!,
+                        st.ToWarehouse!);
+
+                        newStockData = result;
+                    }
+                    else if (st.Type == TransactionType.Purchase)
+                    {
+                        newStockData = new PurchaseStockLevelDto
+                        {
+                            PreviousQuantity = st.ProductWarehouse!.Quantity,
+                            NewQuantity = st.ProductWarehouse.Quantity + st.QuantityChanged
+                        };
+                    }
+                    else if (st.Type == TransactionType.Sale)
+                    {
+                        newStockData = new SaleStockLevelDto
+                        {
+                            PreviousQuantity = st.ProductWarehouse!.Quantity,
+                            NewQuantity = st.ProductWarehouse.Quantity - st.QuantityChanged
+                        };
+                    }
+
+                    CachedTransactions.Add(new StockTransactionDto
+                    {
+                        QuantityChanged = st.QuantityChanged,
+                        Type = st.Type,
+                        Note = st.Note,
+                        TransactionDate = st.TransactionDate,
+                        WarehouseId = st.ProductWarehouse!.WarehouseId,
+                        WarehouseName = st.FromWarehouse!.Name,
+                        NewStockLevel = newStockData
+                    });
+                }
+
+                _cache.Set(
+                      transactionsCacheKey,
+                      CachedTransactions,
+                      new MemoryCacheEntryOptions
+                      {
+                          AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(2)
+                      });
+
+                _logger.LogInformation("Fetched {TransactionCount} stock transactions for product {ProductId}", cachedStockValue.OverAllCount, productId);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Transactions cache hit for product {ProductId}",
+                    productId);
+            }
 
             var productDto = new ProductDto
             {
-                Id = product.Id,
-                Name = product.Name,
-                SKU = product.SKU,
-                ImgUrl = product.ImgUrl,
-                RetailPrice = product.RetailPrice,
-                CostPrice = product.CostPrice,
-                //Profit = product.SetProfit(),
-                Profit = product.RetailPrice - product.CostPrice,
-                Quantity = warehouseProductQuantity,
-                OverAllCount = overAllCount,
-                StockLevel = stockLevel,
-                SupplierInfo = supplierInfo,
-                Transactions = productTransactions
+                Id = summary!.Id,
+                Name = summary.Name,
+                SKU = summary.SKU,
+                ImgUrl = summary.ImgUrl,
+                RetailPrice = summary.RetailPrice,
+                CostPrice = summary.CostPrice,
+                Profit = summary.RetailPrice - summary.CostPrice,
+                Quantity = cachedStockValue.Warehouses,
+                OverAllCount = cachedStockValue.OverAllCount,
+                StockLevel = cachedStockValue.StockLevel,
+                SupplierInfo = summary.SupplierInfo,
+                Transactions = CachedTransactions
             };
 
-            _logger.LogInformation("User {UserId} successfully retrieved product {ProductId}", userId, productId);
-            await _audit.LogAsync(userId, companyId, Domain.Enums.AuditAction.Read, $"Product {product.Name} (Id {productId}) retrieved successfully by user {userId}");
+            _logger.LogInformation(
+                   "User {UserId} successfully retrieved product {ProductId}",
+                   userId, productId);
 
-            return Result<ProductDto>.SuccessResponse(productDto, "Product retrieved successfully");
+            await _audit.LogAsync(
+                userId,
+                companyId,
+                AuditAction.Read,
+                $"Product {summary.Name} ({productId}) retrieved successfully");
+
+            return Result<ProductDto>
+                .SuccessResponse(productDto, "Product retrieved successfully");
         }
 
-        public async Task<Result<List<dynamic>>> GetProductsByCompanyId(Guid companyId, int pageSize, int pageNumber)
+        public async Task<Result<List<ProductsDto>>> GetProductsByCompanyId(Guid companyId,int pageSize,int pageNumber)
         {
             var userId = _currentUserService.GetCurrentUserId();
+
             if (companyId == Guid.Empty)
             {
-                _logger.LogWarning("Company ID can not be null");
-                return Result<List<dynamic>>.FailureResponse("Please, provide an ID");
-            }
-
-            var company = await _context.Companies.FindAsync(companyId);
-            if (company == null)
-            {
-                _logger.LogWarning("Company with provided ID not found");
-                return Result<List<dynamic>>.FailureResponse("Company with provideed ID not found");
+                _logger.LogWarning("Company ID cannot be empty");
+                return Result<List<ProductsDto>>
+                    .FailureResponse("Please, provide a valid company ID");
             }
 
             pageNumber = Math.Max(pageNumber, 1);
             pageSize = Math.Clamp(pageSize, 1, 100);
 
+            var cacheKey =
+                $"Company:{companyId}:Products:Page:{pageNumber}:Size:{pageSize}";
+
+   
+            if (_cache.TryGetValue(cacheKey, out List<ProductsDto> cachedProducts))
+            {
+                _logger.LogInformation(
+                    "Products cache HIT for Company {CompanyId} (Page {Page}, Size {Size})",
+                    companyId, pageNumber, pageSize);
+
+                return Result<List<ProductsDto>>
+                    .SuccessResponse(cachedProducts, "Company products retrieved from cache");
+            }
+
+            _logger.LogInformation(
+                "Products cache MISS for Company {CompanyId} (Page {Page}, Size {Size})",
+                companyId, pageNumber, pageSize);
+
+      
+            var companyExists = await _context.Companies
+                .AnyAsync(c => c.Id == companyId);
+
+            if (!companyExists)
+            {
+                _logger.LogWarning(
+                    "Company {CompanyId} not found while fetching products",
+                    companyId);
+
+                return Result<List<ProductsDto>>
+                    .FailureResponse("Company with provided ID not found");
+            }
+
             try
             {
                 var companyProducts = await _context.Products
                     .Where(p => p.CompanyId == companyId)
-                    .Skip(pageNumber * pageSize)
+                    .OrderBy(p => p.Name)
+                    .Skip((pageNumber - 1) * pageSize) 
                     .Take(pageSize)
-                    .Select(p => new { Id = p.Id, Name = p.Name, SKU = p.SKU, ImgUrl = p.ImgUrl, RetailPrice = p.RetailPrice })
+                    .Select(p => new ProductsDto(
+                        p.Id,
+                        p.Name,
+                        p.SKU,
+                        p.ImgUrl,
+                        p.RetailPrice
+                    ))
                     .ToListAsync();
 
                 if (!companyProducts.Any())
                 {
-                    _logger.LogWarning("No products found for the company");
-                    return Result<List<dynamic>>.FailureResponse("No products found for the company");
+                    _logger.LogWarning(
+                        "No products found for Company {CompanyId}",
+                        companyId);
+
+                    return Result<List<ProductsDto>>
+                        .FailureResponse("No products found for the company");
                 }
 
-                _logger.LogInformation("Products retrieved successfully");
-                BackgroundJob.Enqueue<IAuditService>("audit", job => job.LogAsync(userId, companyId, AuditAction.Read, $"Company products fetched successfully by {userId}"));
+        
+                _cache.Set(
+                    cacheKey,
+                    companyProducts,
+                    new MemoryCacheEntryOptions
+                    {
+                        AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5),
+                        SlidingExpiration = TimeSpan.FromMinutes(2)
+                    });
 
-                return Result<List<dynamic>>.SuccessResponse(companyProducts.Cast<dynamic>().ToList(), "Company products successfully retrieved");
+                _logger.LogInformation(
+                    "Cached {Count} products for Company {CompanyId} (Page {Page}, Size {Size})",
+                    companyProducts.Count, companyId, pageNumber, pageSize);
+
+               
+                BackgroundJob.Enqueue<IAuditService>(
+                    "audit",
+                    job => job.LogAsync(
+                        userId,
+                        companyId,
+                        AuditAction.Read,
+                        $"Fetched company products (Page {pageNumber}, Size {pageSize})"));
+
+                return Result<List<ProductsDto>>
+                    .SuccessResponse(companyProducts, "Company products successfully retrieved");
             }
-            catch (DbUpdateException ex)
+            catch (Exception ex)
             {
-                _logger.LogCritical($"An unknown error occurred while fetching company products: {ex.Message}");
-                return Result<List<dynamic>>.FailureResponse("An unknown error occurred while fetching products for company");
+                _logger.LogCritical(
+                    ex,
+                    "Error fetching products for Company {CompanyId}",
+                    companyId);
+
+                return Result<List<ProductsDto>>
+                    .FailureResponse("An unknown error occurred while fetching products");
             }
         }
 
@@ -498,6 +656,14 @@ namespace IMS.Application.Services
                 $"Updated product '{product.Name}' with ID {product.Id}"
             );
 
+            _cache.Remove($"Product:{productId}:Summary");
+            _cache.Remove($"Product:{productId}:Stock");
+            _cache.Remove($"Product:{productId}:Transactions");
+            _cache.Remove($"Company:{product.CompanyId}:Products");
+
+            _cache.RemoveByPrefix($"Products:Filtered:");      
+            _cache.RemoveByPrefix($"Products:SKU:");           
+
             return Result<string>.SuccessResponse("Product updated successfully.");
         }
 
@@ -528,11 +694,19 @@ namespace IMS.Application.Services
                 $"Deleted product '{product.Name}' with ID {product.Id}"));
            
             _logger.LogInformation("Product '{ProductName}' marked as deleted by user {UserId}", product.Name, userId);
+            _cache.Remove($"Product:{productId}:Summary");
+            _cache.Remove($"Product:{productId}:Stock");
+            _cache.Remove($"Product:{productId}:Transactions");
+
+            _cache.RemoveByPrefix($"Products:Filtered:");
+            _cache.RemoveByPrefix($"Products:SKU:");
+            _cache.RemoveByPrefix($"Company:{product.CompanyId}:Products");
+            _cache.RemoveByPrefix($"Warehouse:");  
 
             return Result<string>.SuccessResponse("Product deleted successfully.");
         }
 
-        public async Task<Result<WarehouseProductsResponse>> GetProductsInWarehouse(Guid warehouseId, int pageSize, int pageIndex)
+        public async Task<Result<WarehouseProductsResponse>> GetProductsInWarehouse(Guid warehouseId,int pageSize,int pageIndex)
         {
             var userId = _currentUserService.GetCurrentUserId();
             var companyId = await GetCurrentUserCompanyIdAsync();
@@ -543,49 +717,63 @@ namespace IMS.Application.Services
                 return Result<WarehouseProductsResponse>.FailureResponse("Please, provide an ID");
             }
 
+            var cacheKey = $"Warehouse:{warehouseId}:Page:{pageIndex}:Size:{pageSize}";
+
+            if (_cache.TryGetValue(cacheKey, out WarehouseProductsResponse? cachedResult))
+            {
+                _logger.LogInformation("Cache HIT for warehouse {WarehouseId}, page {PageIndex}", warehouseId, pageIndex);
+                return Result<WarehouseProductsResponse>.SuccessResponse(cachedResult!, "Warehouse products retrieved from cache");
+            }
+
             try
             {
                 var query = _context.ProductWarehouses
-               .Where(pw => pw.WarehouseId == warehouseId);
+                    .Where(pw => pw.WarehouseId == warehouseId);
 
                 var totalCount = await query.CountAsync();
 
-                var WarehouseProducts = await query
+                var warehouseProductsList = await query
                     .AsNoTracking()
                     .Skip(pageIndex * pageSize)
                     .Take(pageSize)
-                    .Select(pw => new ProductsDto
-                    {
-                        Id = pw.ProductId,
-                        Name = pw.Product!.Name,
-                        SKU = pw.Product.SKU,
-                        ImgUrl = pw.Product.ImgUrl,
-                        RetailPrice = pw.Product.RetailPrice,
-                    }).ToListAsync();
+                    .Select(pw => new ProductsDto(
+                        pw.ProductId,
+                        pw.Product!.Name,
+                        pw.Product.SKU,
+                        pw.Product.ImgUrl,
+                        pw.Product.RetailPrice
+                    ))
+                    .ToListAsync();
 
-                if (WarehouseProducts.Count <= 0 && !WarehouseProducts.Any())
+                if (!warehouseProductsList.Any())
                 {
-                    _logger.LogInformation($"User{userId} attempted to fetch products in warehouse: {warehouseId}");
-                    await _audit.LogAsync(userId, companyId, Domain.Enums.AuditAction.Read, $"Attempted to fetch products with Warehouse Id: {warehouseId}");
-                    return Result<WarehouseProductsResponse>.FailureResponse("Error occured: Query returned empty list");
+                    _logger.LogInformation("User {UserId} attempted to fetch products in warehouse {WarehouseId} but no products found", userId, warehouseId);
+                    await _audit.LogAsync(userId, companyId, AuditAction.Read, $"Attempted to fetch products with Warehouse Id: {warehouseId}");
+                    return Result<WarehouseProductsResponse>.FailureResponse("No products found in this warehouse");
                 }
 
-                var warehouseProducts = new WarehouseProductsResponse
+                var response = new WarehouseProductsResponse
                 {
                     OverAllCount = totalCount,
-                    Products = WarehouseProducts
+                    Products = warehouseProductsList
                 };
 
-                _logger.LogInformation($"User{userId} fetched products in warehouse: {warehouseId}");
-                await _audit.LogAsync(userId, companyId,AuditAction.Read, $"Fetched products with Warehouse Id: {warehouseId}");
-                return Result<WarehouseProductsResponse>.SuccessResponse(warehouseProducts, "Warehouse products retrieved successfully");
+                _cache.Set(cacheKey, response, new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5),
+                    SlidingExpiration = TimeSpan.FromMinutes(2)
+                });
+
+                _logger.LogInformation("User {UserId} fetched products in warehouse {WarehouseId}", userId, warehouseId);
+                await _audit.LogAsync(userId, companyId, AuditAction.Read, $"Fetched products with Warehouse Id: {warehouseId}");
+
+                return Result<WarehouseProductsResponse>.SuccessResponse(response, "Warehouse products retrieved successfully");
             }
             catch (Exception ex)
             {
-
-                _logger.LogInformation($"User{userId} attempted to fetch products in warehouse: {warehouseId}",ex);
-                await _audit.LogAsync(userId, companyId, Domain.Enums.AuditAction.Read, $"Attempted to fetch products with Warehouse Id: {warehouseId},");
-                return Result<WarehouseProductsResponse>.FailureResponse("Error occured: Query returned empty list"); ;
+                _logger.LogError(ex, "Error fetching products in warehouse {WarehouseId} for user {UserId}", warehouseId, userId);
+                await _audit.LogAsync(userId, companyId, AuditAction.Read, $"Attempted to fetch products with Warehouse Id: {warehouseId}");
+                return Result<WarehouseProductsResponse>.FailureResponse("An error occurred while fetching warehouse products");
             }
         }
 
@@ -663,6 +851,10 @@ namespace IMS.Application.Services
                     AuditAction.Update,
                     $"Product image updated successfully for product {product.Name} ({productId})"
                 );
+                _cache.Remove($"Product:{productId}:Summary");
+                _cache.RemoveByPrefix($"Products:Filtered:");  
+                _cache.RemoveByPrefix($"Products:SKU:");       
+                _cache.RemoveByPrefix($"Company:{companyId}:Products"); 
 
                 return Result<string>.SuccessResponse(imageUrl, "Product image uploaded successfully");
             }
@@ -685,7 +877,7 @@ namespace IMS.Application.Services
             }
         }
 
-        public async Task<Result<PaginatedProductsDto>> GetProductBySku(string sku,int pageNumber = 1, int pageSize = 20)
+        public async Task<Result<PaginatedProductsDto>> GetProductBySku(string sku, int pageNumber = 1,int pageSize = 20)
         {
             var userId = _currentUserService.GetCurrentUserId();
             var companyId = await GetCurrentUserCompanyIdAsync();
@@ -697,14 +889,23 @@ namespace IMS.Application.Services
             }
 
             pageNumber = Math.Max(pageNumber, 1);
-            pageSize = Math.Clamp(pageSize, 1, 100); 
+            pageSize = Math.Clamp(pageSize, 1, 100);
+
+           
+            var cacheKey = $"Products:SKU:{sku}:Page:{pageNumber}:Size:{pageSize}";
+
+            if (_cache.TryGetValue(cacheKey, out PaginatedProductsDto? cachedResult))
+            {
+                _logger.LogInformation("Cache HIT for SKU search {SKU}, page {Page}", sku, pageNumber);
+                return Result<PaginatedProductsDto>.SuccessResponse(cachedResult!, "Products retrieved from cache");
+            }
 
             try
             {
-                var totalCount = await _context.Products
-                    .AsNoTracking()
-                    .Where(p => p.SKU.Contains(sku))
-                    .CountAsync();
+                var query = _context.Products.AsNoTracking()
+                    .Where(p => p.SKU.Contains(sku));
+
+                var totalCount = await query.CountAsync();
 
                 if (totalCount == 0)
                 {
@@ -713,31 +914,35 @@ namespace IMS.Application.Services
                     return Result<PaginatedProductsDto>.FailureResponse("No products found with this SKU");
                 }
 
-                var products = await _context.Products
-                    .AsNoTracking()
-                    .Where(p => p.SKU.Contains(sku))
+                var products = await query
                     .Skip((pageNumber - 1) * pageSize)
                     .Take(pageSize)
-                    .Select(p => new ProductsDto
-                    {
-                        Id = p.Id,
-                        Name = p.Name,
-                        SKU = p.SKU,
-                        ImgUrl = p.ImgUrl,
-                        RetailPrice = p.RetailPrice
-                    })
+                    .Select(p => new ProductsDto(
+                        p.Id,
+                        p.Name,
+                        p.SKU,
+                        p.ImgUrl,
+                        p.RetailPrice
+                    ))
                     .ToListAsync();
 
-                var PaginatedResult = new PaginatedProductsDto
+                var paginatedResult = new PaginatedProductsDto
                 {
                     Products = products,
                     TotalCount = totalCount
                 };
 
-                _logger.LogInformation("User {UserId} fetched {Count} products by SKU {SKU}", userId, products.Count, sku);
+               
+                _cache.Set(cacheKey, paginatedResult, new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5),
+                    SlidingExpiration = TimeSpan.FromMinutes(2)
+                });
+
+                _logger.LogInformation("User {UserId} fetched {Count} products by SKU {SKU} and cached the result", userId, products.Count, sku);
                 await _audit.LogAsync(userId, companyId, AuditAction.Read, $"Fetched {products.Count} products by SKU {sku}");
 
-                return Result<PaginatedProductsDto>.SuccessResponse(PaginatedResult, "Products retrieved successfully");
+                return Result<PaginatedProductsDto>.SuccessResponse(paginatedResult, "Products retrieved successfully");
             }
             catch (Exception ex)
             {
@@ -746,10 +951,33 @@ namespace IMS.Application.Services
             }
         }
 
-        public async Task<Result<List<ProductsDto>>> GetFilteredProducts(Guid? warehouseId , Guid? supplierId , string? Name , string? Sku, string categoryName , int pageNumber = 1, int pageSize = 20)
+        public async Task<Result<List<ProductsDto>>> GetFilteredProducts(Guid? warehouseId,Guid? supplierId,string? Name,string? Sku,string categoryName,int pageNumber = 1,int pageSize = 20)
         {
             _logger.LogInformation("Products filtering...");
 
+            pageNumber = Math.Max(pageNumber, 1);
+            pageSize = Math.Clamp(pageSize, 1, 100);
+
+    
+            var cacheKey = $"Products:Filtered:" +
+                           $"Warehouse:{warehouseId}:" +
+                           $"Supplier:{supplierId}:" +
+                           $"Name:{Name}:" +
+                           $"Sku:{Sku}:" +
+                           $"Category:{categoryName}:" +
+                           $"Page:{pageNumber}:" +
+                           $"Size:{pageSize}";
+
+        
+            if (_cache.TryGetValue(cacheKey, out List<ProductsDto> cachedProducts))
+            {
+                _logger.LogInformation("Filtered products cache HIT");
+                return Result<List<ProductsDto>>.SuccessResponse(
+                    cachedProducts,
+                    "Products retrieved from cache");
+            }
+
+        
             var query = _context.Products.AsQueryable();
 
             if (warehouseId.HasValue)
@@ -769,25 +997,40 @@ namespace IMS.Application.Services
 
             var totalCount = await query.CountAsync();
 
-            var products = await query
-                .Skip((pageNumber - 1) * pageSize)
-                .Take(pageSize)
-                .Select(p => new ProductsDto
-                {
-                    Id = p.Id,
-                    Name = p.Name,
-                    SKU = p.SKU,
-                    ImgUrl = p.ImgUrl,
-                    RetailPrice = p.RetailPrice
-                })
-                .ToListAsync();
-
             if (totalCount == 0)
             {
                 _logger.LogWarning("No product with filter query found");
                 return Result<List<ProductsDto>>.FailureResponse("No products found");
             }
-            return Result<List<ProductsDto>>.SuccessResponse(products, "Products retrieved successfully.");
+
+          
+            var products = await query
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .Select(p => new ProductsDto(
+                    p.Id,
+                    p.Name,
+                    p.SKU,
+                    p.ImgUrl,
+                    p.RetailPrice
+                ))
+                .ToListAsync();
+
+           
+            _cache.Set(
+                cacheKey,
+                products,
+                new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5),
+                    SlidingExpiration = TimeSpan.FromMinutes(2)
+                });
+
+            _logger.LogInformation("Filtered products cached with key {CacheKey}", cacheKey);
+
+            return Result<List<ProductsDto>>.SuccessResponse(
+                products,
+                "Products retrieved successfully");
         }
     }
 }

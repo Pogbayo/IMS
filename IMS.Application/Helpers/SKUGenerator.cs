@@ -1,7 +1,4 @@
-﻿using System;
-using System.Linq;
-
-namespace IMS.Application.Helpers
+﻿namespace IMS.Application.Helpers
 {
     public static class SkuGenerator
     {

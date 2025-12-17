@@ -7,7 +7,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Primitives;
-using System.Runtime.ExceptionServices;
 
 namespace IMS.Application.Services
 {
@@ -81,8 +80,9 @@ namespace IMS.Application.Services
                     //The moment the Token gets cancelled, this sends a signal to the cache system to invalidate the cached record for the company
                     ExpirationTokens = { new CancellationChangeToken(cts.Token)}
                 };
+
                 //Cache configuration...
-                _memoryCache.Set(cacheKey, cachedAudits,options);
+                _memoryCache.Set(cacheKey,audits,options);
             }
             return Result<dynamic>.FailureResponse("An unknown error occured while retrieving Audits..");
         }

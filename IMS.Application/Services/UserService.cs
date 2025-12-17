@@ -11,8 +11,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 
-
-
 namespace IMS.Application.Services
 {
     public class UserService : IUserService
@@ -66,7 +64,7 @@ namespace IMS.Application.Services
 
                 await _mailer.SendEmailAsync(dto.Email, $"You have been added to a company", $"Hello,\n\nYou have been added to the company: {dto.CompanyId}. You can now log in using your credentials.");
 
-
+                _cache.Remove($"company:{dto.CompanyId}:users");
 
                 return Result<Guid>.SuccessResponse(user.Id);
             }
@@ -95,6 +93,8 @@ namespace IMS.Application.Services
                 await _audit.LogAsync(userId, Guid.Empty, AuditAction.Update, $"User {user.Email} updated.");
                 _logger.LogInformation("User {UserId} updated", userId);
 
+                _cache.Remove($"UserById{userId}");
+
                 return Result<string>.SuccessResponse("User updated successfully");
             }
             catch (Exception ex)
@@ -121,6 +121,9 @@ namespace IMS.Application.Services
 
                 await _mailer.SendEmailAsync(user.Email!, "Removed from Company", $"Hello,\n\nYou have been removed from your company and no longer have access.");
 
+                _cache.Remove($"UserById{userId}");
+                _cache.Remove($"company:{user.CompanyId}:users");
+
                 return Result<string>.SuccessResponse("User deleted successfully");
             }
             catch (Exception ex)
@@ -135,7 +138,7 @@ namespace IMS.Application.Services
             var cacheKey = $"UserById{userId}";
             try
             {
-                if (!_cache.TryGetValue<UserDto>(cacheKey,out var cachedUser))
+                if (!_cache.TryGetValue<UserDto>(cacheKey,out UserDto cachedUser))
                 {
                     var user = await _userManager.FindByIdAsync(userId.ToString());
                     if (user == null)
@@ -153,7 +156,7 @@ namespace IMS.Application.Services
                         AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10),
                         SlidingExpiration = TimeSpan.FromMinutes(2),
                     };
-                    _cache.Set(cacheKey, cachedUser, options);
+                    _cache.Set(cacheKey, dto, options);
 
                     return Result<UserDto>.SuccessResponse(dto);
                 }
@@ -193,6 +196,7 @@ namespace IMS.Application.Services
                 if (!_cache.TryGetValue<List<UserDto>>(cacheKey, out var cachedCompanyUsers))
                 {
                     _logger.LogInformation("Data not found in the cache system, hitting the databse...");
+
                     var users = await _userManager.Users
                    .Where(u => u.CompanyId == companyId)
                    .Select(u => new UserDto
@@ -208,7 +212,7 @@ namespace IMS.Application.Services
                         AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10),
                         SlidingExpiration = TimeSpan.FromMinutes(2),
                     };
-                    _cache.Set(cacheKey,cachedCompanyUsers,options);
+                    _cache.Set(cacheKey,users,options);
 
                     _logger.LogInformation("Data successfully retrieved from the database...");
                     return Result<List<UserDto>>.SuccessResponse(users);

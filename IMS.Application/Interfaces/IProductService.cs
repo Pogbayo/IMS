@@ -12,7 +12,7 @@ namespace IMS.Application.Interfaces
     {
         Task<Result<Guid>> CreateProduct(ProductCreateDto dto);
         Task<Result<ProductDto>> GetProductById(Guid productId);
-        Task<Result<List<dynamic>>> GetProductsByCompanyId(Guid companyId , int pageSize, int pageNumber);
+        Task<Result<List<ProductsDto>>> GetProductsByCompanyId(Guid companyId , int pageSize, int pageNumber);
         Task<Result<string>> UpdateProduct(Guid productId, ProductUpdateDto dto);
         Task<Result<string>> DeleteProduct(Guid productId);
         Task<Result<WarehouseProductsResponse>> GetProductsInWarehouse(Guid warehouseId,int pageSize,int pageIndex);
