@@ -16,128 +16,123 @@ namespace IMS.Application.Services
         private readonly ICurrentUserService _currentUserService;
         private readonly IProductService _productService;
         private readonly IAuditService _auditservice;
-        public StockTransactionService(IAuditService auditService,IProductService productService,IAppDbContext context, ILogger<StockTransactionService> logger, ICurrentUserService currentUserService)
+        private readonly ICustomMemoryCache _cache;
+
+        public StockTransactionService(
+            IAuditService auditService,
+            IProductService productService,
+            IAppDbContext context,
+            ILogger<StockTransactionService> logger,
+            ICurrentUserService currentUserService,
+            ICustomMemoryCache cache)
         {
             _productService = productService;
             _auditservice = auditService;
             _context = context;
             _logger = logger;
             _currentUserService = currentUserService;
+            _cache = cache;
         }
-
 
         public async Task<Result<List<StockTransactionDto>>> GetStockTransactions(
             Guid companyId,
             DateTime? fromDate = null,
             DateTime? toDate = null,
-            Guid? productId = null, 
+            Guid? productId = null,
             Guid? fromWarehouseId = null,
             Guid? toWarehouseId = null,
-            TransactionType? transactionType = null, 
+            TransactionType? transactionType = null,
             int pageNumber = 1,
             int pageSize = 20)
         {
             _logger.LogInformation("Getting the Stock transactions...");
 
-            var userId = _currentUserService.GetCurrentUserId();
+            string cacheKey = $"StockTransactions_{companyId}_{fromDate}_{toDate}_{productId}_{fromWarehouseId}_{toWarehouseId}_{transactionType}_{pageNumber}_{pageSize}";
 
-            IQueryable<StockTransaction> query = _context.StockTransactions
-                .Where(q => q.CompanyId == companyId);
-
-            if (fromDate.HasValue)
-                query = query.Where(t => t.TransactionDate >= fromDate.Value);
-
-            if (toDate.HasValue)
-                query = query.Where(t => t.TransactionDate <= toDate.Value);
-
-            if (productId.HasValue)
-                query = query.Where(t => t.ProductWarehouse!.ProductId == productId);
-
-            if (fromWarehouseId.HasValue)
-                query = query.Where(t => t.FromWarehouseId == fromWarehouseId);
-
-            if (toWarehouseId.HasValue)
-                query = query.Where(t => t.ToWarehouseId == toWarehouseId);
-
-            if (transactionType.HasValue)
-                query = query.Where(t => t.Type == transactionType);
-
-            var stockTransactions = await query
-                .Skip((pageNumber - 1) * pageSize)
-                .Take(pageSize)
-                //.Select(st => new StockTransactionDto
-                //{
-                //    QuantityChanged = st.QuantityChanged,
-                //    Type = st.Type,
-                //    Note = st.Note,
-                //    TransactionDate = st.TransactionDate,
-                //})
-                .ToListAsync();
-
-            var transactions = new List<StockTransactionDto>();
-
-            foreach (var st in stockTransactions)
+            var transactions = await _cache.GetOrCreateAsync(cacheKey, async entry =>
             {
-                object newStockData;
+                entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
 
-                if (st.Type == TransactionType.Transfer)
+                var userId = _currentUserService.GetCurrentUserId();
+
+                IQueryable<StockTransaction> query = _context.StockTransactions
+                    .Where(q => q.CompanyId == companyId);
+
+                if (fromDate.HasValue) query = query.Where(t => t.TransactionDate >= fromDate.Value);
+                if (toDate.HasValue) query = query.Where(t => t.TransactionDate <= toDate.Value);
+                if (productId.HasValue) query = query.Where(t => t.ProductWarehouse!.ProductId == productId);
+                if (fromWarehouseId.HasValue) query = query.Where(t => t.FromWarehouseId == fromWarehouseId);
+                if (toWarehouseId.HasValue) query = query.Where(t => t.ToWarehouseId == toWarehouseId);
+                if (transactionType.HasValue) query = query.Where(t => t.Type == transactionType);
+
+                var stockTransactions = await query
+                    .Skip((pageNumber - 1) * pageSize)
+                    .Take(pageSize)
+                    .ToListAsync();
+
+                var transactionDtos = new List<StockTransactionDto>();
+
+                foreach (var st in stockTransactions)
                 {
-                    var result = _productService.CalculateNewStockDetails
-                        (
-                        st.Type,
-                        st.ProductWarehouse!.Quantity,
-                        st.QuantityChanged,
-                        st.FromWarehouse!,
-                        st.ToWarehouse!
+                    object newStockData;
+
+                    if (st.Type == TransactionType.Transfer)
+                    {
+                        newStockData = _productService.CalculateNewStockDetails(
+                            st.Type,
+                            st.ProductWarehouse!.Quantity,
+                            st.QuantityChanged,
+                            st.FromWarehouse!,
+                            st.ToWarehouse!
                         );
-                    newStockData = result;
-                }
-                else if (st.Type == TransactionType.Sale)
-                {
-                    newStockData = new SaleStockLevelDto
+                    }
+                    else if (st.Type == TransactionType.Sale)
                     {
-                        PreviousQuantity = st.ProductWarehouse!.Quantity,
-                        NewQuantity = st.ProductWarehouse.Quantity - st.QuantityChanged
-                    };
-                }
-                else if (st.Type == TransactionType.Purchase)
-                {
-                    newStockData = new PurchaseStockLevelDto
+                        newStockData = new SaleStockLevelDto
+                        {
+                            PreviousQuantity = st.ProductWarehouse!.Quantity,
+                            NewQuantity = st.ProductWarehouse.Quantity - st.QuantityChanged
+                        };
+                    }
+                    else if (st.Type == TransactionType.Purchase)
                     {
-                        PreviousQuantity = st.ProductWarehouse!.Quantity,
-                        NewQuantity = st.ProductWarehouse.Quantity + st.QuantityChanged
-                    };
-                }
-                else
-                {
-                    newStockData = null!;
+                        newStockData = new PurchaseStockLevelDto
+                        {
+                            PreviousQuantity = st.ProductWarehouse!.Quantity,
+                            NewQuantity = st.ProductWarehouse.Quantity + st.QuantityChanged
+                        };
+                    }
+                    else
+                    {
+                        newStockData = null!;
+                    }
+
+                    transactionDtos.Add(new StockTransactionDto
+                    {
+                        QuantityChanged = st.QuantityChanged,
+                        Type = st.Type,
+                        Note = st.Note,
+                        TransactionDate = st.TransactionDate,
+                        NewStockLevel = newStockData,
+                        WarehouseId = st.ProductWarehouse!.WarehouseId,
+                        WarehouseName = st.ProductWarehouse!.Warehouse!.Name
+                    });
                 }
 
-                var stockTransaction = new StockTransactionDto
+                if (!transactionDtos.Any())
                 {
-                    QuantityChanged = st.QuantityChanged,
-                    Type = st.Type,
-                    Note = st.Note,
-                    TransactionDate = st.TransactionDate,
-                    NewStockLevel = newStockData,
-                    WarehouseId = st.ProductWarehouse!.WarehouseId,
-                    WarehouseName = st.ProductWarehouse!.Warehouse!.Name
-                };
-                transactions.Add(stockTransaction);
-            }
+                    _logger.LogWarning("No Transaction record matched the filter...");
+                    return null; 
+                }
 
-            if (transactions.Count == 0)
-            {
-                _logger.LogWarning("No Transaction record matched the filter...");
+                await _auditservice.LogAsync(userId, companyId, AuditAction.Read,
+                    $"User: {userId} fetched Inventory Movements in the Company");
+
+                return transactionDtos;
+            });
+
+            if (transactions == null || !transactions.Any())
                 return Result<List<StockTransactionDto>>.FailureResponse("No Transaction record matched the filter..");
-            }
-
-            await _auditservice.LogAsync(
-                userId,
-                companyId,
-                AuditAction.Read,
-                $"User: {userId} fetched Inventory Movements in the Company"
-                );
 
             return Result<List<StockTransactionDto>>.SuccessResponse(transactions, "Filtered transactions record retrieved successfully..");
         }
@@ -149,33 +144,17 @@ namespace IMS.Application.Services
             var userId = _currentUserService.GetCurrentUserId();
 
             if (dto.ProductId == Guid.Empty)
-            {
-                const string errorMessage = "ProductWarehouseId cannot be empty.";
-                _logger.LogWarning(errorMessage);
-                return Result<bool>.FailureResponse(errorMessage);
-            }
+                return Result<bool>.FailureResponse("ProductWarehouseId cannot be empty.");
 
             if (dto.QuantityChanged <= 0)
-            {
-                const string errorMessage = "Quantity changed must be a positive integer.";
-                _logger.LogWarning(errorMessage);
-                return Result<bool>.FailureResponse(errorMessage);
-            }
+                return Result<bool>.FailureResponse("Quantity changed must be a positive integer.");
 
             if (dto.Type <= 0)
-            {
-                const string errorMessage = "Invalid Transaction Type provided.";
-                _logger.LogWarning(errorMessage);
-                return Result<bool>.FailureResponse(errorMessage);
-            }
+                return Result<bool>.FailureResponse("Invalid Transaction Type provided.");
 
             var company = await _context.Companies.FindAsync(dto.CompanyId);
             if (company == null)
-            {
-                const string errorMessage = "Log needs to be attached to a valid Company.";
-                _logger.LogWarning(errorMessage);
-                return Result<bool>.FailureResponse(errorMessage);
-            }
+                return Result<bool>.FailureResponse("Log needs to be attached to a valid Company.");
 
             using var dbTransaction = ((DbContext)_context).Database.BeginTransaction();
 
@@ -186,28 +165,17 @@ namespace IMS.Application.Services
                 .Select(p => p.Id)
                 .FirstOrDefaultAsync();
 
-            var productWarehouseIdForTransafer = await _context.ProductWarehouses
+            var productWarehouseIdForTransfer = await _context.ProductWarehouses
                 .Where(pw => pw.ProductId == dto.ProductId && pw.WarehouseId == dto.ToWarehouseId)
                 .Select(p => p.Id)
                 .FirstOrDefaultAsync();
 
-            if (productWarehouseId == Guid.Empty)
-            {
-                const string errorMessage = "ProductWarehouseId can not be null";
-                _logger.LogWarning(errorMessage);
-                return Result<bool>.FailureResponse(errorMessage);
-            }
-
-            if (productWarehouseIdForTransafer == Guid.Empty)
-            {
-                const string errorMessage = "ProductWarehouseId can not be null";
-                _logger.LogWarning(errorMessage);
-                return Result<bool>.FailureResponse(errorMessage);
-            }
+            if (productWarehouseId == Guid.Empty || (dto.Type == TransactionType.Transfer && productWarehouseIdForTransfer == Guid.Empty))
+                return Result<bool>.FailureResponse("ProductWarehouseId can not be null");
 
             if (dto.Type == TransactionType.Sale)
             {
-                var result = new StockTransaction
+                transactions.Add(new StockTransaction
                 {
                     ProductWarehouseId = productWarehouseId,
                     QuantityChanged = -dto.QuantityChanged,
@@ -216,12 +184,11 @@ namespace IMS.Application.Services
                     UserId = userId,
                     CompanyId = dto.CompanyId,
                     FromWarehouseId = dto.FromWarehouseId,
-                };
-                transactions.Add(result);
+                });
             }
             else if (dto.Type == TransactionType.Purchase)
             {
-                var result = new StockTransaction
+                transactions.Add(new StockTransaction
                 {
                     ProductWarehouseId = productWarehouseId,
                     QuantityChanged = dto.QuantityChanged,
@@ -230,12 +197,11 @@ namespace IMS.Application.Services
                     UserId = userId,
                     CompanyId = dto.CompanyId,
                     ToWarehouseId = dto.ToWarehouseId,
-                };
-                transactions.Add(result);
+                });
             }
             else if (dto.Type == TransactionType.Transfer)
             {
-                var result = new StockTransaction
+                transactions.Add(new StockTransaction
                 {
                     ProductWarehouseId = productWarehouseId,
                     QuantityChanged = -dto.QuantityChanged,
@@ -244,20 +210,18 @@ namespace IMS.Application.Services
                     UserId = userId,
                     CompanyId = dto.CompanyId,
                     FromWarehouseId = dto.FromWarehouseId,
-                };
+                });
 
-                var result2 = new StockTransaction
+                transactions.Add(new StockTransaction
                 {
-                    ProductWarehouseId = productWarehouseIdForTransafer,
-                    QuantityChanged = +dto.QuantityChanged,
+                    ProductWarehouseId = productWarehouseIdForTransfer,
+                    QuantityChanged = dto.QuantityChanged,
                     Type = dto.Type,
                     Note = dto.Note,
                     UserId = userId,
                     CompanyId = dto.CompanyId,
                     ToWarehouseId = dto.ToWarehouseId,
-                };
-                transactions.Add(result);
-                transactions.Add(result2);
+                });
             }
             else
             {
@@ -270,14 +234,17 @@ namespace IMS.Application.Services
             {
                 var dbResult = await _context.SaveChangesAsync();
                 await dbTransaction.CommitAsync();
-                bool isSaved;
 
                 if (dbResult > 0)
                 {
-                    isSaved = true;
                     _logger.LogInformation("Logs saved successfully");
-                    await _auditservice.LogAsync(userId, dto.CompanyId, AuditAction.Create, $"{userId} created a log for the following transaction");
-                    return Result<bool>.SuccessResponse(isSaved, "Inventory Movement logged successfully...");
+                    await _auditservice.LogAsync(userId, dto.CompanyId, AuditAction.Create,
+                        $"{userId} created a log for the following transaction");
+
+                    // Invalidtae cache for this company
+                    _cache.RemoveByPrefix($"StockTransactions_{dto.CompanyId}_");
+
+                    return Result<bool>.SuccessResponse(true, "Inventory Movement logged successfully...");
                 }
                 else
                 {
@@ -287,9 +254,9 @@ namespace IMS.Application.Services
             }
             catch (Exception)
             {
-                _logger.LogWarning("An error occured while saving the logs");
+                _logger.LogWarning("An error occurred while saving the logs");
                 await dbTransaction.RollbackAsync();
-                throw new Exception("An unknown error occured while saving log to the db");
+                throw new Exception("An unknown error occurred while saving log to the db");
             }
         }
     }

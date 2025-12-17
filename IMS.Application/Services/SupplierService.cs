@@ -18,18 +18,22 @@ namespace IMS.Application.Services
         private readonly ICurrentUserService _currentUserService;
         private readonly IAuditService _audit;
         private readonly UserManager<AppUser> _userManager;
+        private readonly ICustomMemoryCache _cache;
+
         public SupplierService(
             UserManager<AppUser> userManager,
             IAppDbContext context,
             ILogger<SupplierService> logger,
             ICurrentUserService currentUserService,
-            IAuditService audit)
+            IAuditService audit,
+            ICustomMemoryCache cache)
         {
             _context = context;
             _userManager = userManager;
             _logger = logger;
             _currentUserService = currentUserService;
             _audit = audit;
+            _cache = cache;
         }
 
         private async Task<Guid> GetCurrentUserCompanyIdAsync()
@@ -60,29 +64,25 @@ namespace IMS.Application.Services
 
                 var userId = _currentUserService.GetCurrentUserId();
                 var companyId = await GetCurrentUserCompanyIdAsync();
-                var company = await _context.Companies.Where(n => n.Id == companyId).Select(n => new 
-                {
-                    Name = n.Name,
-                    Email = n.Email
-                }).FirstOrDefaultAsync();
+                var company = await _context.Companies
+                    .Where(n => n.Id == companyId)
+                    .Select(n => new { n.Name, n.Email })
+                    .FirstOrDefaultAsync();
 
                 if (supplier == null)
                 {
                     _logger.LogWarning("DeleteSupplier failed: Supplier with ID {SupplierId} not found.", supplierId);
 
-                    await _audit.LogAsync(
-                        userId,
-                        companyId,
-                        AuditAction.Delete,
-                        $"Failed delete attempt: Supplier {supplierId} not found."
-                    );
+                    await _audit.LogAsync(userId, companyId, AuditAction.Delete,
+                        $"Failed delete attempt: Supplier {supplierId} not found.");
 
                     return Result<string>.FailureResponse("Supplier not found.");
                 }
 
                 supplier.MarkAsDeleted();
-
                 await _context.SaveChangesAsync();
+
+                _cache.RemoveByPrefix($"Suppliers_{companyId}_");
 
                 var body = $@"
                     Hello {supplier.Name},
@@ -99,19 +99,11 @@ namespace IMS.Application.Services
                     The {company.Name} Team
                     ";
 
-                BackgroundJob.Enqueue<IMailerService>(job => job.SendEmailAsync(supplier.Email, "Notice of Removal",body));
-                BackgroundJob.Enqueue<IAuditService>(job => job.LogAsync(
-                     userId,
-                    companyId,
-                    AuditAction.Delete,
+                BackgroundJob.Enqueue<IMailerService>(job => job.SendEmailAsync(supplier.Email, "Notice of Removal", body));
+                BackgroundJob.Enqueue<IAuditService>(job => job.LogAsync(userId, companyId, AuditAction.Delete,
                     $"Supplier '{supplier.Name}' (ID: {supplier.Id}) deleted by User {userId}"));
-               
 
-                _logger.LogInformation(
-                    "Supplier '{SupplierName}' (ID {SupplierId}) successfully deleted.",
-                    supplier.Name,
-                    supplier.Id
-                );
+                _logger.LogInformation("Supplier '{SupplierName}' (ID {SupplierId}) successfully deleted.", supplier.Name, supplier.Id);
 
                 return Result<string>.SuccessResponse("Supplier deleted successfully.");
             }
@@ -120,12 +112,8 @@ namespace IMS.Application.Services
                 _logger.LogError(ex, "Unexpected error occurred while deleting Supplier {SupplierId}", supplierId);
                 var companyId = await GetCurrentUserCompanyIdAsync();
 
-                await _audit.LogAsync(
-                    _currentUserService.GetCurrentUserId(),
-                    companyId,
-                    AuditAction.Error,
-                    $"DeleteSupplier exception for Supplier {supplierId}"
-                );
+                await _audit.LogAsync(_currentUserService.GetCurrentUserId(), companyId, AuditAction.Error,
+                    $"DeleteSupplier exception for Supplier {supplierId}");
 
                 return Result<string>.FailureResponse("Error deleting supplier.");
             }
@@ -144,66 +132,53 @@ namespace IMS.Application.Services
                 {
                     _logger.LogWarning("GetAllSuppliers failed: CompanyId missing.");
 
-                    await _audit.LogAsync(
-                        userId,
-                        companyId,
-                        AuditAction.Read,
-                        "GetAllSuppliers failed: empty CompanyId."
-                    );
-
+                    await _audit.LogAsync(userId, companyId, AuditAction.Read, "GetAllSuppliers failed: empty CompanyId.");
                     return Result<List<SupplierDto>>.FailureResponse("Company ID is required.");
                 }
 
-                var suppliers = await _context.Suppliers
-                    .Where(s => s.CompanyId == companyId)
-                    .Select(s => new SupplierDto
-                    {
-                        Id = s.Id,
-                        Name = s.Name,
-                        Email = s.Email,
-                        PhoneNumber = s.PhoneNumber
-                    })
-                    .ToListAsync();
+                string cacheKey = $"Suppliers_{companyId}_All";
 
-                if (!suppliers.Any())
+                var suppliers = await _cache.GetOrCreateAsync(cacheKey, async entry =>
+                {
+                    entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
+
+                    var list = await _context.Suppliers
+                        .Where(s => s.CompanyId == companyId)
+                        .Select(s => new SupplierDto
+                        {
+                            Id = s.Id,
+                            Name = s.Name,
+                            Email = s.Email,
+                            PhoneNumber = s.PhoneNumber
+                        })
+                        .ToListAsync();
+
+                    if (!list.Any())
+                        return null; 
+
+                    return list;
+                });
+
+                if (suppliers == null || !suppliers.Any())
                 {
                     _logger.LogInformation("No suppliers found for CompanyId {CompanyId}.", companyId);
 
-                    await _audit.LogAsync(
-                        userId,
-                        companyId,
-                        AuditAction.Read,
-                        "No suppliers found."
-                    );
-
+                    await _audit.LogAsync(userId, companyId, AuditAction.Read, "No suppliers found.");
                     return Result<List<SupplierDto>>.FailureResponse("No suppliers found.");
                 }
 
-                _logger.LogInformation(
-                    "Retrieved {Count} suppliers for CompanyId {CompanyId}.",
-                    suppliers.Count,
-                    companyId
-                );
+                _logger.LogInformation("Retrieved {Count} suppliers for CompanyId {CompanyId}.", suppliers.Count, companyId);
 
-                await _audit.LogAsync(
-                    userId,
-                    companyId,
-                    AuditAction.Read,
-                    $"Retrieved {suppliers.Count} suppliers."
-                );
+                await _audit.LogAsync(userId, companyId, AuditAction.Read, $"Retrieved {suppliers.Count} suppliers.");
 
                 return Result<List<SupplierDto>>.SuccessResponse(suppliers);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Unexpected error occurred in GetAllSuppliers.");
-                var comanyId = await GetCurrentUserCompanyIdAsync();
-                await _audit.LogAsync(
-                    _currentUserService.GetCurrentUserId(),
-                   comanyId,
-                    AuditAction.Failed,
-                    "GetAllSuppliers threw an exception."
-                );
+                var companyId = await GetCurrentUserCompanyIdAsync();
+                await _audit.LogAsync(_currentUserService.GetCurrentUserId(), companyId, AuditAction.Failed,
+                    "GetAllSuppliers threw an exception.");
 
                 return Result<List<SupplierDto>>.FailureResponse("Error fetching suppliers.");
             }
@@ -229,10 +204,7 @@ namespace IMS.Application.Services
 
                 var company = await _context.Companies.FindAsync(companyId);
                 if (company == null)
-                {
-                    _logger.LogWarning("Company with ID {CompanyId} not found.", companyId);
                     return Result<string>.FailureResponse("Company not found");
-                }
 
                 var supplier = new Supplier
                 {
@@ -243,10 +215,9 @@ namespace IMS.Application.Services
                 };
 
                 _context.Suppliers.Add(supplier);
-                _logger.LogInformation("Supplier {SupplierName} added to DbContext", supplier.Name);
-
                 await _context.SaveChangesAsync();
-                _logger.LogInformation("Supplier {SupplierName} persisted to database with ID {SupplierId}", supplier.Name, supplier.Id);
+
+                _cache.RemoveByPrefix($"Suppliers_{companyId}_");
 
                 var body = $@"
                     Hello {supplier.Name},
@@ -268,103 +239,128 @@ namespace IMS.Application.Services
                     mailer.SendEmailAsync(supplier.Email!, "Company Registration!", body)
                 );
 
-                _logger.LogInformation("Welcome email enqueued for supplier {SupplierName}", supplier.Name);
-
                 var userId = _currentUserService.GetCurrentUserId();
 
-                BackgroundJob.Enqueue<IAuditService>(job => job.LogAsync(userId,
-                    companyId,
-                    AuditAction.Create,
+                BackgroundJob.Enqueue<IAuditService>(job => job.LogAsync(userId, companyId, AuditAction.Create,
                     $"Supplier '{supplier.Name}' was created by user {userId}"));
 
-                _logger.LogInformation("Audit logged for supplier {SupplierName} creation by user {UserId}", supplier.Name, userId);
+                _logger.LogInformation("Supplier registration completed successfully for {SupplierName}", dto.Name);
+                return Result<string>.SuccessResponse("Supplier created successfully");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "An unknown error occurred while registering supplier {SupplierName} to company ID {CompanyId}", dto.Name, companyId);
                 throw new Exception("An unknown error occurred while registering Supplier to the Company", ex);
             }
-
-            _logger.LogInformation("Supplier registration completed successfully for {SupplierName}", dto.Name);
-            return Result<string>.SuccessResponse("Supplier created successfully");
         }
 
         public async Task<Result<string>> UpdateSupplier(SupplierUpdateDto dto)
         {
-            if (dto == null)
+            if (dto == null || dto.Id == Guid.Empty)
             {
-                _logger.LogWarning("UpdateSupplier failed: DTO is null.");
+                _logger.LogWarning("UpdateSupplier failed: Invalid DTO or missing Supplier ID.");
                 return Result<string>.FailureResponse("Invalid request.");
-            }
-
-            if (dto.Id == Guid.Empty)
-            {
-                _logger.LogWarning("UpdateSupplier failed: Supplier ID is empty.");
-                return Result<string>.FailureResponse("Supplier ID is required.");
             }
 
             try
             {
                 var supplier = await _context.Suppliers.FindAsync(dto.Id);
-
                 if (supplier == null)
-                {
-                    _logger.LogWarning("Supplier with ID {SupplierId} not found.", dto.Id);
-
-                    await _audit.LogAsync(
-                        _currentUserService.GetCurrentUserId(),
-                        Guid.Empty,
-                        AuditAction.Update,
-                        $"Failed update: Supplier {dto.Id} not found."
-                    );
-
                     return Result<string>.FailureResponse("Supplier not found.");
-                }
 
                 supplier.Name = dto.Name ?? supplier.Name;
                 supplier.Email = dto.Email ?? supplier.Email;
                 supplier.PhoneNumber = dto.PhoneNumber ?? supplier.PhoneNumber;
                 if (dto.IsActive.HasValue)
-                    supplier.IsActive = dto.IsActive.Value ;
+                    supplier.IsActive = dto.IsActive.Value;
 
                 supplier.MarkAsUpdated();
-
                 await _context.SaveChangesAsync();
 
-                var userId = _currentUserService.GetCurrentUserId();
-                await _audit.LogAsync(
-                    userId,
-                    supplier.CompanyId,
-                    AuditAction.Update,
-                    $"Supplier {supplier.Name} (ID: {supplier.Id}) was updated by {userId}"
-                );
+                _cache.RemoveByPrefix($"Suppliers_{supplier.CompanyId}_");
 
-                _logger.LogInformation(
-                    "Supplier {SupplierId} updated successfully by user {UserId}.",
-                    supplier.Id,
-                    userId
-                );
+                var userId = _currentUserService.GetCurrentUserId();
+                await _audit.LogAsync(userId, supplier.CompanyId, AuditAction.Update,
+                    $"Supplier {supplier.Name} (ID: {supplier.Id}) was updated by {userId}");
 
                 return Result<string>.SuccessResponse("Supplier updated successfully.");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error updating supplier with ID {SupplierId}", dto.Id);
-
-                await _audit.LogAsync(
-                    _currentUserService.GetCurrentUserId(),
-                    Guid.Empty,
-                    AuditAction.Error,
-                    $"UpdateSupplier encountered an exception for Supplier {dto.Id}"
-                );
-
+                await _audit.LogAsync(_currentUserService.GetCurrentUserId(), Guid.Empty, AuditAction.Error,
+                    $"UpdateSupplier encountered an exception for Supplier {dto.Id}");
                 return Result<string>.FailureResponse("An error occurred while updating the supplier.");
             }
         }
 
-        public Task<Result<SupplierDto>> GetSupplierByName(string name)
+        public async Task<Result<SupplierDto>> GetSupplierByName(string name)
         {
-            throw new NotImplementedException();
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                _logger.LogWarning("GetSupplierByName called with empty name.");
+                return Result<SupplierDto>.FailureResponse("Supplier name is required.");
+            }
+
+            try
+            {
+                var companyId = await GetCurrentUserCompanyIdAsync();
+                var userId = _currentUserService.GetCurrentUserId();
+
+                if (companyId == Guid.Empty)
+                {
+                    _logger.LogWarning("GetSupplierByName failed: CompanyId missing.");
+                    await _audit.LogAsync(userId, companyId, AuditAction.Read,
+                        "GetSupplierByName failed: empty CompanyId.");
+                    return Result<SupplierDto>.FailureResponse("Company ID is required.");
+                }
+
+                string cacheKey = $"Suppliers_{companyId}_{name.ToLower()}";
+
+                var supplier = await _cache.GetOrCreateAsync(cacheKey, async entry =>
+                {
+                    entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
+
+                    return await _context.Suppliers
+                        .Where(s => s.CompanyId == companyId && s.Name.ToLower() == name.ToLower())
+                        .Select(s => new SupplierDto
+                        {
+                            Id = s.Id,
+                            Name = s.Name,
+                            Email = s.Email,
+                            PhoneNumber = s.PhoneNumber
+                        })
+                        .FirstOrDefaultAsync();
+                });
+
+                if (supplier == null)
+                {
+                    _logger.LogInformation("No supplier found with name '{Name}' in CompanyId {CompanyId}.", name, companyId);
+                    await _audit.LogAsync(userId, companyId, AuditAction.Read,
+                        $"No supplier found with name '{name}'.");
+                    return Result<SupplierDto>.FailureResponse("Supplier not found.");
+                }
+
+                _logger.LogInformation("Supplier '{Name}' retrieved successfully for CompanyId {CompanyId}.", name, companyId);
+                await _audit.LogAsync(userId, companyId, AuditAction.Read,
+                    $"Supplier '{name}' retrieved successfully.");
+
+                return Result<SupplierDto>.SuccessResponse(supplier);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving supplier by name '{Name}'.", name);
+
+                var companyId = await GetCurrentUserCompanyIdAsync();
+
+                await _audit.LogAsync(userId: _currentUserService.GetCurrentUserId(),
+                    companyId: companyId,
+                    action: AuditAction.Error,
+                    description: $"GetSupplierByName error for supplier '{name}'");
+
+                return Result<SupplierDto>.FailureResponse("Error fetching supplier.");
+            }
         }
+
     }
 }

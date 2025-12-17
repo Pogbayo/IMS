@@ -74,7 +74,6 @@ namespace IMS.Application.Services
                 return Result<Guid>.FailureResponse("Failed to add user");
             }
         }
-
         public async Task<Result<string>> UpdateUser(Guid userId, UpdateUserDto dto)
         {
             try
@@ -103,7 +102,6 @@ namespace IMS.Application.Services
                 return Result<string>.FailureResponse("Failed to update user");
             }
         }
-
         public async Task<Result<string>> DeleteUser(Guid userId)
         {
             try
@@ -132,13 +130,12 @@ namespace IMS.Application.Services
                 return Result<string>.FailureResponse("Failed to delete user");
             }
         }
-
         public async Task<Result<UserDto>> GetUserById(Guid userId)
         {
             var cacheKey = $"UserById{userId}";
             try
             {
-                if (!_cache.TryGetValue<UserDto>(cacheKey,out UserDto cachedUser))
+                if (!_cache.TryGetValue(cacheKey,out UserDto cachedUser))
                 {
                     var user = await _userManager.FindByIdAsync(userId.ToString());
                     if (user == null)
@@ -172,7 +169,6 @@ namespace IMS.Application.Services
                 return Result<UserDto>.FailureResponse("Failed to fetch user");
             }
         }
-
         public async Task<Result<List<UserDto>>> GetUsersByCompany(Guid companyId)
         {
             if (companyId == Guid.Empty)
@@ -229,7 +225,6 @@ namespace IMS.Application.Services
                 return Result<List<UserDto>>.FailureResponse("Failed to fetch users");
             }
         }
-
         public async Task<Result<string>> AddRoleToUser(Guid userId, string role)
         {
             if (userId == Guid.Empty)
@@ -272,7 +267,6 @@ namespace IMS.Application.Services
                 return Result<string>.FailureResponse("Failed to add role");
             }
         }
-
         public async Task<Result<string>> UpdateProfileImage(Guid userId, IFormFile file)
         {
             if (userId == Guid.Empty)
