@@ -13,9 +13,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Primitives;
-using System.ComponentModel.Design;
-using System.Xml.Linq;
+
 
 namespace IMS.Application.Services
 {
