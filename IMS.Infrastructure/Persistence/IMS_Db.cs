@@ -24,6 +24,7 @@ namespace IMS.Infrastructure.Persistence
         public DbSet<Warehouse> Warehouses { get; set; }
         public DbSet<Category> Categories { get; set; }
         public DbSet<CompanyDailyStat> CompanyDailyStats { get; set; }
+
         public async Task<IDbContextTransaction> BeginTransactionAsync()
         {
             return await Database.BeginTransactionAsync();
@@ -44,9 +45,7 @@ namespace IMS.Infrastructure.Persistence
         {
             base.OnModelCreating(modelBuilder);
 
-            // -----------------------------
-            // TABLE NAMES & SCHEMA
-            // -----------------------------
+           
             modelBuilder.Entity<AppUser>().ToTable("AppUsers", "inventory");
             modelBuilder.Entity<IdentityRole<Guid>>().ToTable("Roles", "inventory");
             modelBuilder.Entity<IdentityUserRole<Guid>>().ToTable("UserRoles", "inventory");
@@ -66,9 +65,7 @@ namespace IMS.Infrastructure.Persistence
             modelBuilder.Entity<Warehouse>().ToTable("Warehouses", "inventory");
             modelBuilder.Entity<Category>().ToTable("Categories", "inventory");
 
-            // -----------------------------
-            // GLOBAL QUERY FILTERS (soft deletes)
-            // -----------------------------
+            
             modelBuilder.Entity<AppUser>().HasQueryFilter(u => !u.IsDeleted);
             modelBuilder.Entity<Company>().HasQueryFilter(c => !c.IsDeleted);
             modelBuilder.Entity<Warehouse>().HasQueryFilter(w => !w.IsDeleted);
@@ -80,9 +77,7 @@ namespace IMS.Infrastructure.Persistence
             modelBuilder.Entity<Category>().HasQueryFilter(a => !a.IsDeleted);
             modelBuilder.Entity<CompanyDailyStat>().HasQueryFilter(a => !a.IsDeleted);
 
-            // -----------------------------
-            // DECIMAL PRECISION FIXES
-            // -----------------------------
+
             modelBuilder.Entity<Expense>()
                 .Property(e => e.Amount)
                 .HasPrecision(18, 2);
@@ -95,10 +90,6 @@ namespace IMS.Infrastructure.Persistence
                 .HasIndex(p => p.SKU)
                 .IsUnique();
 
-
-            // -----------------------------
-            // RELATIONSHIPS
-            // -----------------------------
 
             // Company => AppUser (regular users in company) - NO ACTION
             modelBuilder.Entity<AppUser>()
