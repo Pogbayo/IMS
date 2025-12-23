@@ -37,6 +37,5 @@ namespace IMS.API.Middlewares.AM
                 }
             }
         }
-
     }
 }

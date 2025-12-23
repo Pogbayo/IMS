@@ -2,14 +2,15 @@ using Hangfire;
 using IMS.API.Middlewares.CHM;
 using IMS.API.Middlewares.GBM;
 using IMS.API.Middlewares.MM;
+using IMS.API.ModelFilter;
 using IMS.Application.Extensions;
+using IMS.Application.Helpers;
 using IMS.Application.Interfaces;
 using IMS.Application.Interfaces.IAudit;
 using IMS.Application.Services;
 using IMS.Infrastructure.DBSeeder;
 using IMS.Infrastructure.Extensions;
 using IMS.Infrastructure.Persistence;
-using IMS.Infrastructure.Token;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -20,7 +21,11 @@ using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers();
+builder.Services.AddControllers(options =>
+{
+    options.Filters.Add<ModelStateValidationFilter>();
+});
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddRateLimiter(options =>
@@ -68,8 +73,8 @@ builder.Services.AddSwaggerGen(c =>
         }
     });
 });
-builder.Services.Configure<JwtSetting>(builder.Configuration.GetSection("Jwt"));
 
+//builder.Services.Configure<JwtSetting>(builder.Configuration.GetSection("Jwt"));
 
 var jwtIssuer = builder.Configuration["Jwt:Issuer"];
 var jwtAudience = builder.Configuration["Jwt:Audience"];
@@ -105,6 +110,11 @@ builder.Services.AddHangfire(configuration =>
         SchemaName = "hangfire" ,
     }));
 
+builder.Services.AddHangfireServer(options =>
+{
+    options.Queues = new[] { "critical", "email", "audit" };
+});
+
 
 builder.Services.AddApplicationServices();
 builder.Services.AddScoped<IAppDbContext>(provider => provider.GetRequiredService<IMS_DbContext>());
@@ -117,17 +127,17 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("AdminOnly", policy =>
         policy.RequireRole("Admin"));
 
-    options.AddPolicy("StaffOnly", policy =>
-        policy.RequireRole("User"));
+    options.AddPolicy("Everyone", policy =>
+        policy.RequireRole("User", "Admin"));
 
-    options.AddPolicy("ManagerOnly", policy =>
-        policy.RequireRole("Admin", "User"));
+    //options.AddPolicy("ManagerOnly", policy =>
+    //    policy.RequireRole("Admin", "Manager"));
 });
-
 
 
 var app = builder.Build();
 
+// DB migrations and seeders
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
@@ -143,25 +153,37 @@ using (var scope = app.Services.CreateScope())
     await AdminSeeder.AdminSeeder(config);
 }
 
-
-if (app.Environment.IsDevelopment())
+// recurring jobs
+using (var scope = app.Services.CreateScope())
 {
-    app.MapOpenApi();
+    var recurringJobs = scope.ServiceProvider.GetRequiredService<IRecurringJob>();
+    recurringJobs.Register();
 }
 
-#pragma warning disable CS0618 // Type or member is obsolete
-app.UseHangfireServer(new BackgroundJobServerOptions
+// Swagger middleware
+if (app.Environment.IsDevelopment())
 {
-    Queues = new[] { "critical", "email", "audit" } 
-});
-#pragma warning restore CS0618 // Type or member is obsolete
+    app.UseSwagger();
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "My API V1");
+        c.RoutePrefix = string.Empty; // Swagger available at root "/"
+    });
+}
 
+app.UseHttpsRedirection();
+app.UseAuthentication();
+app.UseAuthorization();
+
+// Custom middleware
 app.UseMetricsMiddleware();
 app.UseGlobalExceptionBuilder();
 app.UseCustomHeaderBuilder();
-app.UseHttpsRedirection();
-app.UseAuthorization();
-app.UseAuthentication();
-app.UseHangfireDashboard("/hangfire");
-app.Run();
 
+// Hangfire dashboard
+app.UseHangfireDashboard("/hangfire");
+
+// Map controllers 
+app.MapControllers();
+
+app.Run();

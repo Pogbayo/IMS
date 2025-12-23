@@ -1,5 +1,4 @@
-﻿using Hangfire;
-using IMS.Application.ApiResponse;
+﻿using IMS.Application.ApiResponse;
 using IMS.Application.DTO.Product;
 using IMS.Application.DTO.StockTransaction;
 using IMS.Application.DTO.Warehouse;
@@ -21,16 +20,18 @@ namespace IMS.Application.Services
     {
         private readonly ILogger<ProductService> _logger;
         private readonly IAppDbContext _context;
+        private readonly IJobQueue _jobqueue;
         private readonly IAuditService _audit;
         private readonly ICurrentUserService _currentUserService;
         private readonly UserManager<AppUser> _userManager;
         private readonly IImageService _imageService;
         private readonly IStockTransactionService _stockTransaction;
         private readonly ICustomMemoryCache _cache;
-        public ProductService(ICustomMemoryCache cache,IStockTransactionService stockTransaction,IImageService imageService,UserManager<AppUser> userManager,ILogger<ProductService> logger, IAppDbContext context, IAuditService audit, ICurrentUserService currentUserService)
+        public ProductService(IJobQueue jobqueue,ICustomMemoryCache cache, Func<IStockTransactionService> stockTransactionFactory, IImageService imageService,UserManager<AppUser> userManager,ILogger<ProductService> logger, IAppDbContext context, IAuditService audit, ICurrentUserService currentUserService)
         {
+            _jobqueue = jobqueue;
             _cache = cache;
-            _stockTransaction = stockTransaction;
+            _stockTransaction = stockTransactionFactory();
             _imageService = imageService;
             _userManager = userManager;
             _logger = logger;
@@ -598,14 +599,14 @@ namespace IMS.Application.Services
                     "Cached {Count} products for Company {CompanyId} (Page {Page}, Size {Size})",
                     companyProducts.Count, companyId, pageNumber, pageSize);
 
-               
-                BackgroundJob.Enqueue<IAuditService>(
-                    "audit",
-                    job => job.LogAsync(
-                        userId,
-                        companyId,
-                        AuditAction.Read,
-                        $"Fetched company products (Page {pageNumber}, Size {pageSize})"));
+
+                _jobqueue.Enqueue<IAuditService>(
+                        job => job.LogAsync(
+                            userId,
+                            companyId,
+                            AuditAction.Read,
+                            $"Fetched company products (Page {pageNumber}, Size {pageSize})"));
+
 
                 return Result<List<ProductsDto>>
                     .SuccessResponse(companyProducts, "Company products successfully retrieved");
@@ -686,7 +687,8 @@ namespace IMS.Application.Services
 
             await _context.SaveChangesAsync();
 
-            BackgroundJob.Enqueue<IAuditService>("audit", job => job.LogAsync(userId,
+            _jobqueue.Enqueue<IAuditService>(
+                job => job.LogAsync(userId,
                 product.CompanyId,
                 AuditAction.Delete,
                 $"Deleted product '{product.Name}' with ID {product.Id}"));

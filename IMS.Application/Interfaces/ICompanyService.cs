@@ -2,7 +2,7 @@
 using IMS.Application.DTO.Company;
 namespace IMS.Application.Interfaces
 {
-    internal interface ICompanyService
+    public interface ICompanyService
     {
         Task<Result<CreatedCompanyDto>> RegisterCompanyAndAdmin(CompanyCreateDto dto);
         Task<Result<CompanyDto>> GetCompanyById(Guid companyId);

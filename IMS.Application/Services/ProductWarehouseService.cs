@@ -1,6 +1,5 @@
 ﻿using IMS.Application.Interfaces;
 using IMS.Application.Interfaces.IAudit;
-using IMS.Domain.Entities;
 using IMS.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;

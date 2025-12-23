@@ -1,5 +1,4 @@
-﻿using Hangfire;
-using IMS.Application.ApiResponse;
+﻿using IMS.Application.ApiResponse;
 using IMS.Application.DTO.Company;
 using IMS.Application.DTO.Product;
 using IMS.Application.Interfaces;
@@ -19,25 +18,27 @@ namespace IMS.Application.Services
         private readonly ILogger<CompanyService> _logger;
         private readonly IAppDbContext _context;
         private readonly UserManager<AppUser> _userManager;
-        private readonly RoleManager<IdentityRole> _roleManager;
+        private readonly RoleManager<IdentityRole<Guid>> _roleManager;
         private readonly IAuditService _audit;
         private readonly ICurrentUserService _currentUserService;
         private readonly ICompanyCalculations _companyCalculations;
         private readonly IWarehouseService _warehouseService;
         private readonly ICustomMemoryCache _cache;
-
+        private readonly IJobQueue _jobqueue;
         public CompanyService(
+            IJobQueue jobqueue,
             ILogger<CompanyService> logger,
             IWarehouseService warehouseService,
             IAppDbContext context,
             UserManager<AppUser> userManager,
-            RoleManager<IdentityRole> roleManager,
+            RoleManager<IdentityRole<Guid>> roleManager,
             IAuditService audit,
             ICurrentUserService currentUserService,
             ICompanyCalculations companyCalculations,
             ICustomMemoryCache cache
         )
         {
+            _jobqueue = jobqueue;
             _logger = logger;
             _context = context;
             _userManager = userManager;
@@ -115,7 +116,7 @@ namespace IMS.Application.Services
                 await _audit.LogAsync(AppUser.Id, company.Id, AuditAction.Create, $"Admin user '{AppUser.FirstName} {AppUser.LastName}' registered with company '{company.Name}'.");
 
                 if (!await _roleManager.RoleExistsAsync("Admin"))
-                    await _roleManager.CreateAsync(new IdentityRole("Admin"));
+                    await _roleManager.CreateAsync(new IdentityRole<Guid>("Admin"));
 
                 await _userManager.AddToRoleAsync(AppUser, "Admin");
 
@@ -147,12 +148,16 @@ namespace IMS.Application.Services
                 // Confirmation email
                 try
                 {
-                    string confirmationUrl = "https://superaqual-nelle-aerogenically.ngrok-free.dev/suppliers";
+                    string confirmationUrl = "https://superaqual-nelle-aerogenically.ngrok-free.dev/ims/dashboard";
                     string body = $"Hi {AppUser.FirstName},<br><br>Please confirm your email by clicking the link {confirmationUrl}.";
 
-                    BackgroundJob.Enqueue<IMailerService>(mailer =>
+                    _jobqueue.Enqueue<IMailerService>(mailer =>
                         mailer.SendEmailAsync(AppUser.Email!, "Confirm Your Account", body)
                     );
+
+                    //BackgroundJob.Enqueue<IMailerService>(mailer =>
+                    //    mailer.SendEmailAsync(AppUser.Email!, "Confirm Your Account", body)
+                    //);
 
                     await _audit.LogAsync(AppUser.Id, company.Id, AuditAction.Create, $"Confirmation email sent to '{AppUser.Email}'.");
                 }

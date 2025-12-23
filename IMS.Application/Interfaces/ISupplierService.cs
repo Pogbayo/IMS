@@ -2,7 +2,7 @@
 
 namespace IMS.Application.Interfaces
 {
-    internal interface ISupplierService
+    public interface ISupplierService
     {
         Task<Result<string>> RegisterSupplierToCompany(Guid companyId, SupplierCreateDto dto);
         Task<Result<List<SupplierDto>>> GetAllSuppliers();

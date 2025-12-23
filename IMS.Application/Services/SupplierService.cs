@@ -1,4 +1,4 @@
-﻿using Hangfire;
+﻿using Hangfire.Common;
 using IMS.Application.ApiResponse;
 using IMS.Application.Interfaces;
 using IMS.Application.Interfaces.IAudit;
@@ -14,6 +14,7 @@ namespace IMS.Application.Services
     public class SupplierService : ISupplierService
     {
         private readonly ILogger<SupplierService> _logger;
+        private readonly IJobQueue _jobqueue;
         private readonly IAppDbContext _context;
         private readonly ICurrentUserService _currentUserService;
         private readonly IAuditService _audit;
@@ -21,6 +22,7 @@ namespace IMS.Application.Services
         private readonly ICustomMemoryCache _cache;
 
         public SupplierService(
+            IJobQueue jobqueue,
             UserManager<AppUser> userManager,
             IAppDbContext context,
             ILogger<SupplierService> logger,
@@ -29,6 +31,7 @@ namespace IMS.Application.Services
             ICustomMemoryCache cache)
         {
             _context = context;
+            _jobqueue = jobqueue;
             _userManager = userManager;
             _logger = logger;
             _currentUserService = currentUserService;
@@ -99,8 +102,8 @@ namespace IMS.Application.Services
                     The {company.Name} Team
                     ";
 
-                BackgroundJob.Enqueue<IMailerService>(job => job.SendEmailAsync(supplier.Email, "Notice of Removal", body));
-                BackgroundJob.Enqueue<IAuditService>(job => job.LogAsync(userId, companyId, AuditAction.Delete,
+                _jobqueue.Enqueue<IMailerService>(job => job.SendEmailAsync(supplier.Email, "Notice of Removal", body));
+                _jobqueue.Enqueue<IAuditService>(job => job.LogAsync(userId, companyId, AuditAction.Delete,
                     $"Supplier '{supplier.Name}' (ID: {supplier.Id}) deleted by User {userId}"));
 
                 _logger.LogInformation("Supplier '{SupplierName}' (ID {SupplierId}) successfully deleted.", supplier.Name, supplier.Id);
@@ -153,7 +156,7 @@ namespace IMS.Application.Services
                         })
                         .ToListAsync();
 
-                    if (!list.Any())
+                    if (list.Count() == 0)
                         return null; 
 
                     return list;
@@ -235,13 +238,13 @@ namespace IMS.Application.Services
                     The {company.Name} Team
                     ";
 
-                BackgroundJob.Enqueue<IMailerService>(mailer =>
+                _jobqueue.Enqueue<IMailerService>(mailer =>
                     mailer.SendEmailAsync(supplier.Email!, "Company Registration!", body)
                 );
 
                 var userId = _currentUserService.GetCurrentUserId();
 
-                BackgroundJob.Enqueue<IAuditService>(job => job.LogAsync(userId, companyId, AuditAction.Create,
+                _jobqueue.Enqueue<IAuditService>(job => job.LogAsync(userId, companyId, AuditAction.Create,
                     $"Supplier '{supplier.Name}' was created by user {userId}"));
 
                 _logger.LogInformation("Supplier registration completed successfully for {SupplierName}", dto.Name);

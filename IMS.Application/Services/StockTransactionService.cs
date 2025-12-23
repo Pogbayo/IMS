@@ -20,13 +20,13 @@ namespace IMS.Application.Services
 
         public StockTransactionService(
             IAuditService auditService,
-            IProductService productService,
+            Func<IProductService> productServiceFactory,
             IAppDbContext context,
             ILogger<StockTransactionService> logger,
             ICurrentUserService currentUserService,
             ICustomMemoryCache cache)
         {
-            _productService = productService;
+            _productService = productServiceFactory();
             _auditservice = auditService;
             _context = context;
             _logger = logger;

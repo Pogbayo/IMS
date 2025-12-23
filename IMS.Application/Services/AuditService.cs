@@ -1,4 +1,5 @@
 ﻿using IMS.Application.ApiResponse;
+using IMS.Application.DTO.Audit;
 using IMS.Application.Interfaces;
 using IMS.Application.Interfaces.IAudit;
 using IMS.Domain.Entities; 
@@ -23,7 +24,7 @@ namespace IMS.Application.Services
             _logger = logger;
         }
 
-        public async Task<Result<dynamic>> GetAudits(Guid companyId , int pageSize , int pageNumber)
+        public async Task<Result<List<AuditDto>>> GetAudits(Guid companyId , int pageSize , int pageNumber)
         {
             _logger.LogInformation("Fetching Audits for company");
 
@@ -43,12 +44,12 @@ namespace IMS.Application.Services
                 if (companyId == Guid.Empty)
                 {
                     _logger.LogWarning("Please, provide an ID");
-                    return Result<dynamic>.FailureResponse("Please, proivde an ID");
+                    return Result<List<AuditDto>>.FailureResponse("Please, proivde an ID");
                 }
 
                 var company = await _db.Companies.FindAsync(companyId);
                 if (company == null)
-                    return Result<dynamic>.FailureResponse("Company does not exist");
+                    return Result<List<AuditDto>>.FailureResponse("Company does not exist");
 
                 pageNumber = Math.Max(pageNumber, 1);
                 pageSize = Math.Clamp(pageSize, 1, 100);
@@ -57,20 +58,20 @@ namespace IMS.Application.Services
                     .Where(al => al.CompanyId == companyId)
                     .Skip(pageNumber * pageSize)
                     .Take(pageSize)
-                    .Select(al => new
+                    .Select(al => new AuditDto
                     {
                         UserId = al.UserId,
                         UserName = al.User!.FirstName,
                         CompanyId = al.CompanyId,
-                        Description = al.Description,
-                        ActionType = al.Action
+                        Description = al.Description!,
+                        Action = al.Action
                     })
                     .ToListAsync();
 
                 if (audits.Count == 0)
                 {
                     _logger.LogWarning("Audit count is 0");
-                    return Result<dynamic>.SuccessResponse(audits, "Audits retrieved successfully...");
+                    return Result<List<AuditDto>>.SuccessResponse(audits, "Audits retrieved successfully...");
                 }
 
                 var options = new MemoryCacheEntryOptions
@@ -84,7 +85,7 @@ namespace IMS.Application.Services
                 //Cache configuration...
                 _memoryCache.Set(cacheKey,audits,options);
             }
-            return Result<dynamic>.FailureResponse("An unknown error occured while retrieving Audits..");
+            return Result<List<AuditDto>>.FailureResponse("An unknown error occured while retrieving Audits..");
         }
 
         public async Task LogAsync(Guid userId, Guid companyId, AuditAction action , string description)
