@@ -7,7 +7,8 @@ namespace IMS.Application.DTO.Company
         public string FirstName { get; set; } = string.Empty;
         public Guid CompanyId { get; set; }
         public string Name { get; set; } = string.Empty;
-        public string Email { get; set; } = string.Empty;
+        public string CompanyEmail { get; set; } = string.Empty;
+        public string AdminEmail { get; set; } = string.Empty;
         public string HeadOffice { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }

@@ -7,8 +7,8 @@ namespace IMS.Application.DTO.User
         public  string ?FirstName { get; set; }
         public  string? LastName { get; set; }
         public  string? UserName { get; set; }
-        public Guid CompanyId { get; set; }
+        public Guid? CompanyId { get; set; }
         public bool IsCompanyAdmin { get; set; } = false;
-        public int PhoneNumber { get; set; }
+        public string? PhoneNumber { get; set; }
     }
 }

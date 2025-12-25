@@ -1,4 +1,4 @@
-﻿using CloudinaryDotNet;
+﻿ using CloudinaryDotNet;
 using CloudinaryDotNet.Actions;
 using IMS.Application.Interfaces;
 using IMS.Application.Settings;
@@ -13,6 +13,7 @@ namespace IMS.Application.Services
 
         public ImageService(IOptions<CloudinarySettings> config)
         {
+            Console.WriteLine($"\n====== DEBUG: CloudName = {config.Value.CloudName} ======\n");
             var acc = new Account(config.Value.CloudName, config.Value.ApiKey, config.Value.ApiSecret);
             _cloudinary = new Cloudinary(acc);
         }

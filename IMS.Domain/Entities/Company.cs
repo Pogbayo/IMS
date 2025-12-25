@@ -4,8 +4,9 @@ namespace IMS.Domain.Entities
     {
         public string Name { get; set; } = string.Empty;
         public string Email { get; set; } = string.Empty;
+        public string CompanyLine { get; set; } = string.Empty;
         public string HeadOffice { get; set; } = string.Empty;
-        public Guid CreatedById { get; set; }
+        public Guid? CreatedById { get; set; }
         public AppUser CreatedBy { get; set; } = null!;
         public ICollection<AuditLog> AuditLogs { get; set; } = new List<AuditLog>();
         public ICollection<StockTransaction> StockTransactions { get; set; } = new List<StockTransaction>();

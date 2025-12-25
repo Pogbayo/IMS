@@ -10,26 +10,29 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using IMS.Infrastructure.Token;
 
 namespace IMS.Application.Services
 {
     public class UserService : IUserService
     {
         private readonly UserManager<AppUser> _userManager;
-        private readonly RoleManager<IdentityRole> _roleManager;
+        private readonly RoleManager<IdentityRole<Guid>> _roleManager;
         private readonly ILogger<UserService> _logger;
         private readonly IAuditService _audit;
         private readonly IMailerService _mailer;
         private readonly ICustomMemoryCache _cache;
+        private readonly ITokenGenerator _tokenGenerator;
         private readonly IAppDbContext _context;
         private readonly IImageService _imageService;
         public UserService(
+            ITokenGenerator tokenGenerator,
             IImageService imageService,
             ICustomMemoryCache cache,
             IMailerService mailer,
             IAppDbContext context,
             UserManager<AppUser> userManager,
-            RoleManager<IdentityRole> roleManager,
+            RoleManager<IdentityRole<Guid>> roleManager,
             ILogger<UserService> logger,
             IAuditService audit)
         {
@@ -37,6 +40,7 @@ namespace IMS.Application.Services
             _imageService = imageService;
             _context = context;
             _cache = cache;
+            _tokenGenerator = tokenGenerator;
             _userManager = userManager;
             _roleManager = roleManager;
             _logger = logger;
@@ -73,6 +77,48 @@ namespace IMS.Application.Services
                 _logger.LogError(ex, "Error adding user {Email}", dto.Email);
                 return Result<Guid>.FailureResponse("Failed to add user");
             }
+        }
+        public async Task<Result<LoginResponseDto>> Login(LoginUserDto userDetails)
+        {
+            if (string.IsNullOrWhiteSpace(userDetails.Email) || string.IsNullOrWhiteSpace(userDetails.Password))
+            {
+                _logger.LogWarning("Invalid credentials provided.");
+                return Result<LoginResponseDto>.FailureResponse("Invalid credentials.", "Email and Password cannot be empty.");
+            }
+
+            var user = await _userManager.FindByEmailAsync(userDetails.Email);
+
+            if (user is null)
+            {
+                _logger.LogWarning("User not found.");
+                return Result<LoginResponseDto>.FailureResponse("User with provided email address does not exist");
+            }
+
+            var token = await _tokenGenerator.GenerateAccessToken(user);
+
+            if (string.IsNullOrEmpty(token))
+            {
+                _logger.LogError("Token generation failed");
+                throw new ArgumentNullException("Token is null");
+            }
+
+            var newObject = new LoginResponseDto
+            {
+                Token = token,
+                User = new UserDto
+                {
+                    Id = user.Id,
+                    Email = user.Email!,
+                    FirstName = user.FirstName,
+                    PhoneNumber = user.PhoneNumber!,
+                    IsCompanyAdmin  = user.IsCompanyAdmin,
+                    UserName = user.FirstName,
+                    CompanyId = user.CompanyId
+                },
+            };
+
+            _logger.LogInformation($"This is the user details,{user}");
+            return Result<LoginResponseDto>.SuccessResponse(newObject, "Login successful.");
         }
         public async Task<Result<string>> UpdateUser(Guid userId, UpdateUserDto dto)
         {
@@ -246,7 +292,7 @@ namespace IMS.Application.Services
                     return Result<string>.FailureResponse("User not found");
 
                 if (!await _roleManager.RoleExistsAsync(role))
-                    await _roleManager.CreateAsync(new IdentityRole(role));
+                    await _roleManager.CreateAsync(new IdentityRole<Guid>(role));
 
                 var result = await _userManager.AddToRoleAsync(user, role);
                 if (!result.Succeeded)

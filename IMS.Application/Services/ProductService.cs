@@ -239,8 +239,8 @@ namespace IMS.Application.Services
                                 Type = TransactionType.Purchase,
                                 CompanyId = Product.CompanyId,
                                 Note = $"{userId} added this product to warehouse {pw.Warehouse!.Name} on {Product.CreatedAt}",
-                                FromWarehouseId = pw.WarehouseId,
-                                ToWarehouseId = null 
+                                FromWarehouseId = null,
+                                ToWarehouseId = pw.WarehouseId
                             };
 
                             await _stockTransaction.LogTransaction

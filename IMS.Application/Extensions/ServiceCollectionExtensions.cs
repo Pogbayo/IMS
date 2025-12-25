@@ -31,7 +31,7 @@ namespace IMS.Application.Extensions
             services.AddScoped<IJobQueue, JobQueue>();
             services.AddScoped<IPhoneValidator, PhoneValidator>();
             services.AddScoped<IRecurringJob, IRecurringJobs>();
-
+            services.AddScoped<IUserService, UserService>();
 
             services.AddScoped<IProductService>(sp =>
                 new ProductService(

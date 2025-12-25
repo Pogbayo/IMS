@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
+using IMS.Application.Settings;
 
 namespace IMS.Infrastructure.Extensions
 {
@@ -36,6 +37,8 @@ namespace IMS.Infrastructure.Extensions
             .AddEntityFrameworkStores<IMS_DbContext>()
             .AddDefaultTokenProviders();
 
+            services.Configure<CloudinarySettings>(configuration.GetSection("CloudinarySettings"));
+            services.Configure<JwtSetting>(configuration.GetSection("Jwt"));
             services.Configure<SMTPSettings>(configuration.GetSection("EmailSettings"));
             services.AddScoped<Seeder>();
             services.AddScoped<ITokenGenerator, TokenGenerator>();

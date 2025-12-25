@@ -25,8 +25,10 @@ namespace IMS.Application.Services
         private readonly IWarehouseService _warehouseService;
         private readonly ICustomMemoryCache _cache;
         private readonly IJobQueue _jobqueue;
+        private readonly IMailerService _mailer;
         public CompanyService(
             IJobQueue jobqueue,
+            IMailerService mailer,
             ILogger<CompanyService> logger,
             IWarehouseService warehouseService,
             IAppDbContext context,
@@ -39,6 +41,7 @@ namespace IMS.Application.Services
         )
         {
             _jobqueue = jobqueue;
+            _mailer = mailer;
             _logger = logger;
             _context = context;
             _userManager = userManager;
@@ -52,128 +55,117 @@ namespace IMS.Application.Services
 
         public async Task<Result<CreatedCompanyDto>> RegisterCompanyAndAdmin(CompanyCreateDto dto)
         {
-            var currentuser = _currentUserService.GetCurrentUserId();
-
             if (dto == null)
-                throw new ArgumentNullException(nameof(dto), "Incomplete details -- Company details are required.");
-
-            if (string.IsNullOrWhiteSpace(dto.CompanyName))
-                throw new ArgumentNullException(nameof(dto.CompanyName));
-
-            if (string.IsNullOrWhiteSpace(dto.CompanyEmail))
-                throw new ArgumentNullException(nameof(dto.CompanyEmail));
-
-            if (string.IsNullOrWhiteSpace(dto.HeadOffice))
-                throw new ArgumentNullException(nameof(dto.HeadOffice));
+                return Result<CreatedCompanyDto>.FailureResponse("Invalid request", "Company details are required");
 
             using var transaction = await ((DbContext)_context).Database.BeginTransactionAsync();
-
             try
             {
-                var createdWarehouses = new List<Warehouse>();
-
-                foreach (var item in dto.Warehouses)
-                {
-                    var result = await _warehouseService.CreateWarehouse(item);
-                    if (!result.Success) continue;
-
-                    var warehouseEntity = await _context.Warehouses.FindAsync(result.Data);
-                    if (warehouseEntity != null)
-                        createdWarehouses.Add(warehouseEntity);
-                }
+               
 
                 var company = new Company
                 {
-                    Name = dto.CompanyName,
-                    Email = dto.CompanyEmail,
-                    HeadOffice = dto.HeadOffice,
-                    Warehouses = createdWarehouses,
+                    Name = dto.CompanyName!,
+                    Email = dto.CompanyEmail!,
+                    HeadOffice = dto.HeadOffice!
                 };
 
                 _context.Companies.Add(company);
                 await _context.SaveChangesAsync();
 
-                await _audit.LogAsync(currentuser, company.Id, AuditAction.Create, $"Company '{company.Name}' created with email '{company.Email}'.");
+              
 
-                var AppUser = new AppUser
+                var appUser = new AppUser
                 {
                     FirstName = dto.FirstName,
                     LastName = dto.LastName,
                     Email = dto.Email,
-                    Company = company,
-                    CreatedCompany = company,
+                    UserName = dto.Email,
+                    CompanyId = company.Id,
                     IsCompanyAdmin = true
                 };
 
-                var IdentityResult = await _userManager.CreateAsync(AppUser, dto.Password);
+                var identityResult = await _userManager.CreateAsync(appUser, dto.Password);
 
-                if (!IdentityResult.Succeeded)
+                if (!identityResult.Succeeded)
                 {
-                    var errorMessages = string.Join("; ", IdentityResult.Errors.Select(e => e.Description));
-                    return Result<CreatedCompanyDto>.FailureResponse($"Error registering user: {errorMessages}");
-                }
+                    await transaction.RollbackAsync();
 
-                await _audit.LogAsync(AppUser.Id, company.Id, AuditAction.Create, $"Admin user '{AppUser.FirstName} {AppUser.LastName}' registered with company '{company.Name}'.");
+                    var errors = string.Join("; ", identityResult.Errors.Select(e => e.Description));
+                    return Result<CreatedCompanyDto>.FailureResponse(
+                        $"User registration failed: {errors}"
+                    );
+                }
+              
 
                 if (!await _roleManager.RoleExistsAsync("Admin"))
-                    await _roleManager.CreateAsync(new IdentityRole<Guid>("Admin"));
+                {
+                    var roleResult = await _roleManager.CreateAsync(new IdentityRole<Guid>("Admin"));
+                    if (!roleResult.Succeeded)
+                        throw new InvalidOperationException("Admin role creation failed");
+                }
 
-                await _userManager.AddToRoleAsync(AppUser, "Admin");
+                var roleAssignResult = await _userManager.AddToRoleAsync(appUser, "Admin");
+                if (!roleAssignResult.Succeeded)
+                    throw new InvalidOperationException("Failed to assign Admin role");
 
-                await _audit.LogAsync(AppUser.Id, company.Id, AuditAction.Update, $"Admin role assigned to user '{AppUser.Email}'.");
-
-                company.Users.Add(AppUser);
-                company.CreatedById = AppUser.Id;
+                company.CreatedById = appUser.Id;
                 await _context.SaveChangesAsync();
 
-                var createdCompanyDto = new CreatedCompanyDto
+                await transaction.CommitAsync();
+
+             
+                _ = Task.Run(async () =>
                 {
-                    AdminId = AppUser.Id,
+                    try
+                    {
+                        await _audit.LogAsync(
+                            appUser.Id,
+                            company.Id,
+                            AuditAction.Create,
+                            $"Company '{company.Name}' registered with admin '{appUser.Email}'."
+                        );
+
+                        await _mailer.SendEmailAsync(
+                            appUser.Email!,
+                            "Confirm Your Account",
+                            $"Hi {appUser.FirstName}, please confirm your account."
+                        );
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Post-registration tasks failed");
+                    }
+                });
+
+                return Result<CreatedCompanyDto>.SuccessResponse(new CreatedCompanyDto
+                {
+                    AdminId = appUser.Id,
                     CompanyId = company.Id,
-                    Name = company.Name,
-                    Email = company.Email,
-                    HeadOffice = company.HeadOffice,
+                    Name = company.Name!,
                     CreatedAt = company.CreatedAt,
+                    CompanyEmail = company.Email,
+                    HeadOffice = company.HeadOffice,
+                    AdminEmail = appUser.Email,
                     UpdatedAt = company.UpdatedAt,
                     TotalInventoryValue = 0,
                     TotalPurchases = 0,
                     SalesTrend = 0,
-                    TopProductsBySales = new List<ProductsDto>(),
+                    TopProductsBySales = new(),
                     TotalSalesPerMonth = 0,
-                    LowOnStockProducts = new List<ProductsDto>()
-                };
-
-                await transaction.CommitAsync();
-
-                // Confirmation email
-                try
-                {
-                    string confirmationUrl = "https://superaqual-nelle-aerogenically.ngrok-free.dev/ims/dashboard";
-                    string body = $"Hi {AppUser.FirstName},<br><br>Please confirm your email by clicking the link {confirmationUrl}.";
-
-                    _jobqueue.Enqueue<IMailerService>(mailer =>
-                        mailer.SendEmailAsync(AppUser.Email!, "Confirm Your Account", body)
-                    );
-
-                    //BackgroundJob.Enqueue<IMailerService>(mailer =>
-                    //    mailer.SendEmailAsync(AppUser.Email!, "Confirm Your Account", body)
-                    //);
-
-                    await _audit.LogAsync(AppUser.Id, company.Id, AuditAction.Create, $"Confirmation email sent to '{AppUser.Email}'.");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogInformation(ex.Message);
-                    await _audit.LogAsync(AppUser.Id, company.Id, AuditAction.Update, $"Unknown error while sending confirmation email for User: {AppUser.Id}");
-                }
-
-                return Result<CreatedCompanyDto>.SuccessResponse(createdCompanyDto);
+                    LowOnStockProducts = new()
+                },"Company registered Successfully");
             }
-            catch (Exception)
+            catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                _logger.LogInformation("Transaction not complete");
-                return Result<CreatedCompanyDto>.FailureResponse("Transaction not complete");
+
+                _logger.LogError(ex, "Company registration failed for {Email}", dto.CompanyEmail);
+
+                return Result<CreatedCompanyDto>.FailureResponse(
+                    "Transaction not complete",
+                    ex.InnerException?.Message ?? ex.Message
+                );
             }
         }
 
@@ -221,6 +213,7 @@ namespace IMS.Application.Services
             {
                 cacheEntry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10);
 
+
                 var userId = _currentUserService.GetCurrentUserId();
                 var today = DateTime.UtcNow.Date;
 
@@ -250,7 +243,8 @@ namespace IMS.Application.Services
                 {
                     Id = company.Id,
                     Name = company.Name,
-                    Email = company.Email,
+                    CompanyEmail = company.Email,
+                    AdminEmail = company.CreatedBy.Email!,
                     HeadOffice = company.HeadOffice,
                     CreatedAt = company.CreatedAt,
                     UpdatedAt = company.UpdatedAt,
@@ -320,7 +314,7 @@ namespace IMS.Application.Services
                     {
                         Id = c.Id,
                         Name = c.Name,
-                        Email = c.Email,
+                        CompanyEmail = c.Email,
                         HeadOffice = c.HeadOffice
                     })
                     .ToListAsync();

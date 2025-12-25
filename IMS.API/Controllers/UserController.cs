@@ -57,6 +57,19 @@ namespace IMS.API.Controllers
                 : ErrorResponse(result.Error!);
         }
 
+        [HttpPost("login")]
+        public async Task<IActionResult> Login(
+            [FromBody] LoginUserDto dto)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var result = await _userService.Login(dto);
+            return result.Success
+                ? OkResponse(result)
+                : ErrorResponse(result.Error!);
+        }
+
         [Authorize(Policy = "AdminOnly")]
         [HttpDelete("delete/{userId}")]
         public async Task<IActionResult> DeleteUser([FromRoute] Guid userId)

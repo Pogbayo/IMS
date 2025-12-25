@@ -18,7 +18,6 @@ namespace IMS.API.Controllers
             _companyService = companyService;
         }
 
-        [Authorize(Policy = "AdminOnly")]
         [HttpPost("register")]
         public async Task<IActionResult> RegisterCompanyAndAdmin([FromBody] CompanyCreateDto dto)
         {

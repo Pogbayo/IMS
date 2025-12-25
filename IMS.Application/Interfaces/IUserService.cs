@@ -13,5 +13,6 @@ namespace IMS.Application.Interfaces
         Task<Result<List<UserDto>>> GetUsersByCompany(Guid companyId);
         Task<Result<string>> AddRoleToUser(Guid userId, string role);
         Task<Result<string>> UpdateProfileImage(Guid userId, IFormFile file);
+        Task<Result<LoginResponseDto>> Login(LoginUserDto userdetails);
     }
 }

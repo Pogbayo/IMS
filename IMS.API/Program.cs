@@ -175,10 +175,10 @@ app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Custom middleware
-app.UseMetricsMiddleware();
-app.UseGlobalExceptionBuilder();
-app.UseCustomHeaderBuilder();
+//// Custom middleware
+//app.UseMetricsMiddleware();
+//app.UseGlobalExceptionBuilder();
+//app.UseCustomHeaderBuilder();
 
 // Hangfire dashboard
 app.UseHangfireDashboard("/hangfire");

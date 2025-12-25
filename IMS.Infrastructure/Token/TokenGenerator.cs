@@ -23,7 +23,7 @@ namespace IMS.Infrastructure.Token
         }
 
       
-       public async Task<string>? GenerateAccessToken(AppUser user)
+       public async Task<string> GenerateAccessToken(AppUser user)
         {
             if (user == null)
             {
