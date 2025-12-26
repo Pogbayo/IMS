@@ -102,7 +102,6 @@ builder.Services.AddAuthentication(options =>
 });
 
 
-builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddMemoryCache();
 builder.Services.AddOpenApi();
 builder.Services.AddHangfire(configuration =>
@@ -119,7 +118,6 @@ builder.Services.AddHangfireServer(options =>
 
 builder.Services.AddApplicationServices();
 builder.Services.AddScoped<IAppDbContext>(provider => provider.GetRequiredService<IMS_DbContext>());
-builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddHangfireServer();
 builder.Services.AddAuthorization();
 builder.Services.AddInfrastructure(builder.Configuration);
