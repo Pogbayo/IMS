@@ -1,5 +1,4 @@
 ﻿using IMS.Application.Interfaces.IAudit;
-using IMS.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -16,7 +15,7 @@ namespace IMS.API.Controllers
             _auditService = auditService;
         }
 
-        [Authorize(Policy = "AdminOnly")]
+        //[Authorize(Policy = "AdminOnly")]
         [HttpGet("get-audits")]
         public async Task<IActionResult> GetAudits(
             [FromQuery] Guid companyId,

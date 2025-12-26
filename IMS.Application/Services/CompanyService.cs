@@ -114,29 +114,27 @@ namespace IMS.Application.Services
 
                 await transaction.CommitAsync();
 
-             
-                _ = Task.Run(async () =>
-                {
                     try
                     {
-                        await _audit.LogAsync(
+                    _jobqueue.Enqueue<IAuditService>(
+                        job => job.LogAsync(
                             appUser.Id,
                             company.Id,
                             AuditAction.Create,
                             $"Company '{company.Name}' registered with admin '{appUser.Email}'."
-                        );
+                        ));
 
-                        await _mailer.SendEmailAsync(
+                    _jobqueue.Enqueue<IMailerService>(
+                        job => job.SendEmailAsync(
                             appUser.Email!,
                             "Confirm Your Account",
                             $"Hi {appUser.FirstName}, please confirm your account."
-                        );
+                       ));
                     }
                     catch (Exception ex)
                     {
                         _logger.LogError(ex, "Post-registration tasks failed");
                     }
-                });
 
                 return Result<CreatedCompanyDto>.SuccessResponse(new CreatedCompanyDto
                 {
