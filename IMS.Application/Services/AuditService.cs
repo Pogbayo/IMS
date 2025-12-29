@@ -1,4 +1,5 @@
-﻿using IMS.Application.ApiResponse;
+﻿using CloudinaryDotNet.Actions;
+using IMS.Application.ApiResponse;
 using IMS.Application.DTO.Audit;
 using IMS.Application.Interfaces;
 using IMS.Application.Interfaces.IAudit;
@@ -24,27 +25,27 @@ namespace IMS.Application.Services
             _logger = logger;
         }
 
-        public async Task<Result<List<AuditDto>>> GetAudits(Guid companyId , int pageSize , int pageNumber)
+        public async Task<Result<List<AuditDto>>> GetAudits(Guid companyId, int pageSize, int pageNumber)
         {
             _logger.LogInformation("Fetching Audits for company");
-
-            //I am adding a key pair value in the _CompanyTokens dictionary here
-            //FirstChanceExceptionEventArgs checked if the company id exsited in the dictionary before creating a cancellationToken for it and assigning it to the cmpany ID
+            // I am adding a key pair value in the _CompanyTokens dictionary here
+            // FirstChanceExceptionEventArgs checked if the company id existed in the dictionary before creating a cancellationToken for it and assigning it to the company ID
             if (!_companyTokens.TryGetValue(companyId, out var cts))
             {
                 cts = new CancellationTokenSource();
                 _companyTokens[companyId] = cts;
             }
 
-            //Defining the Caceh Key
+            // Defining the Cache Key
             var cacheKey = $"Audit:List:Company:{companyId}:Page:{pageNumber}:Size:{pageSize}";
 
-            if (!_memoryCache.TryGetValue<AuditLog>(cacheKey, out var cachedAudits))
+            List<AuditDto>? cachedAudits = null;
+            if (!_memoryCache.TryGetValue<List<AuditDto>>(cacheKey, out cachedAudits))
             {
                 if (companyId == Guid.Empty)
                 {
                     _logger.LogWarning("Please, provide an ID");
-                    return Result<List<AuditDto>>.FailureResponse("Please, proivde an ID");
+                    return Result<List<AuditDto>>.FailureResponse("Please, provide an ID");
                 }
 
                 var company = await _db.Companies.FindAsync(companyId);
@@ -56,7 +57,7 @@ namespace IMS.Application.Services
 
                 var audits = await _db.AuditLogs
                     .Where(al => al.CompanyId == companyId)
-                    .Skip(pageNumber * pageSize)
+                    .Skip((pageNumber - 1) * pageSize)  
                     .Take(pageSize)
                     .Select(al => new AuditDto
                     {
@@ -68,26 +69,29 @@ namespace IMS.Application.Services
                     })
                     .ToListAsync();
 
+                cachedAudits = audits;  
+
                 if (audits.Count == 0)
                 {
                     _logger.LogWarning("Audit count is 0");
-                    return Result<List<AuditDto>>.SuccessResponse(audits, "Audits retrieved successfully...");
                 }
 
                 var options = new MemoryCacheEntryOptions
                 {
                     AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10),
                     SlidingExpiration = TimeSpan.FromMinutes(2),
-                    //The moment the Token gets cancelled, this sends a signal to the cache system to invalidate the cached record for the company
-                    ExpirationTokens = { new CancellationChangeToken(cts.Token)}
+                    // The moment the Token gets cancelled, this sends a signal to the cache system to invalidate the cached record for the company
+                    ExpirationTokens = { new CancellationChangeToken(cts.Token) }
                 };
 
-                //Cache configuration...
-                _memoryCache.Set(cacheKey,audits,options);
+                // Cache configuration...
+                _memoryCache.Set(cacheKey, cachedAudits, options);
             }
-            return Result<List<AuditDto>>.FailureResponse("An unknown error occured while retrieving Audits..");
-        }
 
+            // Always return success with the data (empty or not) after cache/DB logic
+            return Result<List<AuditDto>>.SuccessResponse(cachedAudits ?? new List<AuditDto>(),
+                cachedAudits?.Count > 0 ? "Audits retrieved successfully..." : "No audits found for the specified criteria.");
+        }
         public async Task LogAsync(Guid userId, Guid companyId, AuditAction action , string description)
         {
             var log = new AuditLog

@@ -1,5 +1,4 @@
-﻿using IMS.Application.ApiResponse;
-using IMS.Application.Interfaces;
+﻿using IMS.Application.Interfaces;
 using IMS.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;

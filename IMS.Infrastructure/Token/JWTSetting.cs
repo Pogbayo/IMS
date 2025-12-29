@@ -6,6 +6,6 @@ namespace IMS.Infrastructure.Token
         public string Key { get; set; } = default!;
         public string Issuer { get; set; } = default!;
         public string Audience { get; set; } = default!;
-        public int ExpiryMinutes { get; set; } = default!;
+        public int ExpireHours { get; set; } = 1;
     }
 }

@@ -3,8 +3,6 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace IMS.API
 {
-    [ApiController]
-    [Route("api/[controller]")]
     public class BaseController : ControllerBase
     {
         protected ActionResult OkResponse<T>(T data, string? message = null)

@@ -1,13 +1,10 @@
 using Hangfire;
-using IMS.API.Middlewares.CHM;
-using IMS.API.Middlewares.GBM;
-using IMS.API.Middlewares.MM;
+//using IMS.API.Middlewares.CHM;
+//using IMS.API.Middlewares.GBM;
+//using IMS.API.Middlewares.MM;
 using IMS.API.ModelFilter;
 using IMS.Application.Extensions;
-using IMS.Application.Helpers;
 using IMS.Application.Interfaces;
-using IMS.Application.Interfaces.IAudit;
-using IMS.Application.Services;
 using IMS.Infrastructure.DBSeeder;
 using IMS.Infrastructure.Extensions;
 using IMS.Infrastructure.Persistence;
@@ -21,10 +18,11 @@ using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers(options =>
-{
-    options.Filters.Add<ModelStateValidationFilter>();
-});
+builder.Services.AddControllers();
+//    (options =>
+//{
+//    options.Filters.Add<ModelStateValidationFilter>();
+//});
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddHttpContextAccessor();
@@ -42,7 +40,7 @@ builder.Services.AddRateLimiter(options =>
 
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new OpenApiInfo { Title = "My API", Version = "v1" });
+    //c.SwaggerDoc("v1", new OpenApiInfo { Title = "My API", Version = "v1" });
     c.DocInclusionPredicate((docName, apiDesc) =>
     {
         return true;
@@ -79,6 +77,14 @@ builder.Services.AddSwaggerGen(c =>
 var jwtIssuer = builder.Configuration["Jwt:Issuer"];
 var jwtAudience = builder.Configuration["Jwt:Audience"];
 var jwtKey = builder.Configuration["Jwt:Key"];
+
+if (string.IsNullOrEmpty(jwtKey))
+    throw new InvalidOperationException("JWT Key is not configured");
+if (string.IsNullOrEmpty(jwtIssuer))
+    throw new InvalidOperationException("JWT Issuer is not configured");
+if (string.IsNullOrEmpty(jwtAudience))
+    throw new InvalidOperationException("JWT Audience is not configured");
+
 var keyBytes = Encoding.UTF8.GetBytes(jwtKey!);
 
 builder.Services.AddAuthentication(options =>
@@ -99,8 +105,31 @@ builder.Services.AddAuthentication(options =>
         IssuerSigningKey = new SymmetricSecurityKey(keyBytes),
         RoleClaimType = "role"
     };
-});
 
+    options.Events = new JwtBearerEvents
+    {
+        OnAuthenticationFailed = context =>
+        {
+            Console.WriteLine($"Authentication failed: {context.Exception.Message}");
+            return Task.CompletedTask;
+        },
+        OnTokenValidated = context =>
+        {
+            Console.WriteLine("Token validated successfully");
+            return Task.CompletedTask;
+        },
+        OnMessageReceived = context =>
+        {
+            Console.WriteLine($"Token received: {context.Token?.Substring(0, 20)}...");
+            return Task.CompletedTask;
+        },
+        OnChallenge = context =>
+        {
+            Console.WriteLine($"Challenge: {context.Error}, {context.ErrorDescription}");
+            return Task.CompletedTask;
+        }
+    };
+});
 
 builder.Services.AddMemoryCache();
 builder.Services.AddOpenApi();
@@ -166,11 +195,14 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI(c =>
     {
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "My API V1");
-        c.RoutePrefix = string.Empty; // Swagger available at root "/"
+        c.RoutePrefix = string.Empty; // Swagger available at root here "/"
     });
 }
 
+
 app.UseHttpsRedirection();
+app.UseRouting();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 

@@ -40,9 +40,10 @@ namespace IMS.Infrastructure.Token
             var roles = await _userManager.GetRolesAsync(user);
             foreach (var role in roles)
             {
-                claims.Add(new Claim(ClaimTypes.Role, role));
+                claims.Add(new Claim("role", role));
             }
 
+            var expiryMinutes = _jwtSettings.ExpireHours * 60;
             SymmetricSecurityKey symmetricSecurityKey = new(Encoding.UTF8.GetBytes(_jwtSettings.Key));
             var key = symmetricSecurityKey;
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -50,10 +51,10 @@ namespace IMS.Infrastructure.Token
             var token = new JwtSecurityToken(
                 issuer: _jwtSettings.Issuer,
                 audience: _jwtSettings.Audience,
-                expires: DateTimeOffset.UtcNow.AddMinutes(_jwtSettings.ExpiryMinutes).UtcDateTime,
+                expires: DateTimeOffset.UtcNow.AddMinutes(expiryMinutes).UtcDateTime,
                 claims: claims,
                 signingCredentials: creds);
-            _logger.LogInformation($"This is your token :{token}");
+            //_logger.LogInformation($"This is your token :{token}");
 
             return new JwtSecurityTokenHandler().WriteToken(token);
         }

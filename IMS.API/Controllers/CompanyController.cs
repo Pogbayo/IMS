@@ -1,7 +1,5 @@
-﻿using IMS.Application.ApiResponse;
-using IMS.Application.DTO.Company;
+﻿using IMS.Application.DTO.Company;
 using IMS.Application.Interfaces;
-using IMS.Application.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
