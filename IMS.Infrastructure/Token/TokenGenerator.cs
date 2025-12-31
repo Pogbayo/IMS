@@ -40,7 +40,7 @@ namespace IMS.Infrastructure.Token
             var roles = await _userManager.GetRolesAsync(user);
             foreach (var role in roles)
             {
-                claims.Add(new Claim("role", role));
+                claims.Add(new Claim(ClaimTypes.Role, role));
             }
 
             var expiryMinutes = _jwtSettings.ExpireHours * 60;

@@ -16,7 +16,7 @@ namespace IMS.API.Controllers
             _productService = productService;
         }
 
-        [Authorize(Policy = "Everyone")]
+        //[Authorize(Policy = "Everyone")]
         [HttpPost("create")]
         public async Task<IActionResult> CreateProduct([FromBody] ProductCreateDto dto)
         {
@@ -29,7 +29,7 @@ namespace IMS.API.Controllers
                 : ErrorResponse(result.Error ?? "Failed to create product", result.Message);
         }
 
-        [Authorize(Policy = "Everyone")]
+        //[Authorize(Policy = "Everyone")]
         [HttpGet("get-by-id")]
         public async Task<IActionResult> GetProductById([FromQuery] Guid productId)
         {
@@ -39,7 +39,7 @@ namespace IMS.API.Controllers
                 : NotFoundResponse(result.Error ?? "Product not found", result.Message);
         }
 
-        [Authorize(Policy = "Everyone")]
+        //[Authorize(Policy = "Everyone")]
         [HttpGet("get-by-company")]
         public async Task<IActionResult> GetProductsByCompanyId(
             [FromQuery] Guid companyId,
@@ -52,7 +52,7 @@ namespace IMS.API.Controllers
                 : ErrorResponse(result.Error ?? "Failed to fetch products", result.Message);
         }
 
-        [Authorize(Policy = "Everyone")]
+        //[Authorize(Policy = "Everyone")]
         [HttpPut("update/{productId}")]
         public async Task<IActionResult> UpdateProduct([FromRoute] Guid productId, [FromBody] ProductUpdateDto dto)
         {
@@ -65,7 +65,7 @@ namespace IMS.API.Controllers
                 : ErrorResponse(result.Error ?? "Failed to update product", result.Message);
         }
 
-        [Authorize(Policy = "Everyone")]
+        //[Authorize(Policy = "Everyone")]
         [HttpDelete("delete/{productId}")]
         public async Task<IActionResult> DeleteProduct([FromRoute] Guid productId)
         {
@@ -75,7 +75,7 @@ namespace IMS.API.Controllers
                 : ErrorResponse(result.Error ?? "Failed to delete product", result.Message);
         }
 
-        [Authorize(Policy = "Everyone")]
+        //[Authorize(Policy = "Everyone")]
         [HttpGet("warehouse/{warehouseId}")]
         public async Task<IActionResult> GetProductsInWarehouse(
             [FromRoute] Guid warehouseId,
@@ -88,7 +88,7 @@ namespace IMS.API.Controllers
                 : ErrorResponse(result.Error ?? "Failed to fetch warehouse products", result.Message);
         }
 
-        [Authorize(Policy = "Everyone")]
+        //[Authorize(Policy = "Everyone")]
         [HttpPost("upload-image/{productId}")]
         public async Task<IActionResult> UploadProductImage([FromRoute] Guid productId, IFormFile file)
         {
@@ -101,7 +101,7 @@ namespace IMS.API.Controllers
                 : ErrorResponse(result.Error ?? "Failed to upload image", result.Message);
         }
 
-        [Authorize(Policy = "Everyone")]
+        //[Authorize(Policy = "Everyone")]
         [HttpGet("search-by-sku")]
         public async Task<IActionResult> GetProductBySku(
             [FromQuery] string sku,
@@ -115,7 +115,7 @@ namespace IMS.API.Controllers
         }
 
    
-        [Authorize(Policy = "Everyone")]
+        //[Authorize(Policy = "Everyone")]
         [HttpGet("filter")]
         public async Task<IActionResult> GetFilteredProducts(
             [FromQuery] Guid? warehouseId,

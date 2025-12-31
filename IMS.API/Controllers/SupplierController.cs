@@ -15,7 +15,7 @@ namespace IMS.API.Controllers
             _supplierService = supplierService;
         }
 
-        [Authorize(Policy = "AdminOnly")]
+        //[Authorize(Policy = "AdminOnly")]
         [HttpPost("register/{companyId}")]
         public async Task<IActionResult> RegisterSupplierToCompany(
             [FromRoute] Guid companyId,
@@ -30,7 +30,7 @@ namespace IMS.API.Controllers
                 : ErrorResponse(result.Error ?? "Failed to register supplier", result.Message);
         }
 
-        [Authorize(Policy = "Everyone")]
+        //[Authorize(Policy = "Everyone")]
         [HttpGet("get-all")]
         public async Task<IActionResult> GetAllSuppliers()
         {
@@ -40,7 +40,7 @@ namespace IMS.API.Controllers
                 : ErrorResponse(result.Error ?? "Failed to fetch suppliers", result.Message);
         }
 
-        [Authorize(Policy = "AdminOnly")]
+        //[Authorize(Policy = "AdminOnly")]
         [HttpPut("update")]
         public async Task<IActionResult> UpdateSupplier([FromBody] SupplierUpdateDto dto)
         {
@@ -63,7 +63,7 @@ namespace IMS.API.Controllers
                 : ErrorResponse(result.Error ?? "Failed to delete supplier", result.Message);
         }
 
-        [Authorize(Policy = "Everyone")]
+        //[Authorize(Policy = "Everyone")]
         [HttpGet("get-by-name")]
         public async Task<IActionResult> GetSupplierByName([FromQuery] string name)
         {

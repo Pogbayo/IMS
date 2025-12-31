@@ -12,17 +12,13 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using Microsoft.OpenApi.Models;
+using System.Security.Claims;
 using System.Text;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
-//    (options =>
-//{
-//    options.Filters.Add<ModelStateValidationFilter>();
-//});
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddHttpContextAccessor();
@@ -87,49 +83,23 @@ if (string.IsNullOrEmpty(jwtAudience))
 
 var keyBytes = Encoding.UTF8.GetBytes(jwtKey!);
 
-builder.Services.AddAuthentication(options =>
-{
-    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-})
-.AddJwtBearer(options =>
-{
-    options.TokenValidationParameters = new TokenValidationParameters
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
     {
-        ValidateIssuer = true,
-        ValidateAudience = true,
-        ValidateLifetime = true,
-        ValidateIssuerSigningKey = true,
-        ValidIssuer = jwtIssuer,
-        ValidAudience = jwtAudience,
-        IssuerSigningKey = new SymmetricSecurityKey(keyBytes),
-        RoleClaimType = "role"
-    };
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwtIssuer,
+            ValidAudience = jwtAudience,
+            IssuerSigningKey = new SymmetricSecurityKey(keyBytes),
+            RoleClaimType = ClaimTypes.Role
+        };
+    });
 
-    options.Events = new JwtBearerEvents
-    {
-        OnAuthenticationFailed = context =>
-        {
-            Console.WriteLine($"Authentication failed: {context.Exception.Message}");
-            return Task.CompletedTask;
-        },
-        OnTokenValidated = context =>
-        {
-            Console.WriteLine("Token validated successfully");
-            return Task.CompletedTask;
-        },
-        OnMessageReceived = context =>
-        {
-            Console.WriteLine($"Token received: {context.Token?.Substring(0, 20)}...");
-            return Task.CompletedTask;
-        },
-        OnChallenge = context =>
-        {
-            Console.WriteLine($"Challenge: {context.Error}, {context.ErrorDescription}");
-            return Task.CompletedTask;
-        }
-    };
-});
 
 builder.Services.AddMemoryCache();
 builder.Services.AddOpenApi();
@@ -147,9 +117,9 @@ builder.Services.AddHangfireServer(options =>
 
 builder.Services.AddApplicationServices();
 builder.Services.AddScoped<IAppDbContext>(provider => provider.GetRequiredService<IMS_DbContext>());
-builder.Services.AddHangfireServer();
-builder.Services.AddAuthorization();
+//builder.Services.AddAuthorization();
 builder.Services.AddInfrastructure(builder.Configuration);
+
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("AdminOnly", policy =>
@@ -171,7 +141,6 @@ using (var scope = app.Services.CreateScope())
     var services = scope.ServiceProvider;
 
     var db = services.GetRequiredService<IMS_DbContext>();
-    db.Database.Migrate();
 
     var RoleSeeder = services.GetRequiredService<Seeder>();
     await RoleSeeder.RoleSeeder();
@@ -202,19 +171,16 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseRouting();
-app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 //// Custom middleware
 //app.UseMetricsMiddleware();
 //app.UseGlobalExceptionBuilder();
 //app.UseCustomHeaderBuilder();
-
 // Hangfire dashboard
 app.UseHangfireDashboard("/hangfire");
-
 // Map controllers 
 app.MapControllers();
-
 app.Run();

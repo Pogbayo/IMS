@@ -16,7 +16,7 @@
             return number;
         }
 
-        public static string GenerateSku(string warehouseName, string productName, string supplierName, int uniqueNumber)
+        public static string GenerateSku(string warehouseName, string productName, string supplierName, int uniqueNumber,decimal RetailPrice)
         {
             if (string.IsNullOrWhiteSpace(warehouseName)) throw new ArgumentException("Warehouse name is required");
             if (string.IsNullOrWhiteSpace(productName)) throw new ArgumentException("Product name is required");
@@ -34,7 +34,7 @@
 
             var serial = uniqueNumber.ToString("D5");
 
-            return $"{warehouseCode}-{productCode}-{supplierCode}-{serial}";
+            return $"{warehouseCode}-{productCode}-{supplierCode}-{serial}-{RetailPrice}";
         }
     }
 }

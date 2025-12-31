@@ -176,7 +176,7 @@ namespace IMS.Application.Services
 
                     var lastNumber = SkuGenerator.GetNumericPart(lastProductSku!);
                     int uniqueNumber = lastNumber + 1;
-                    var ProductSku = SkuGenerator.GenerateSku(warehouseDeets.Name, dto.Name, supplierDeets.Name, uniqueNumber);
+                    var ProductSku = SkuGenerator.GenerateSku(warehouseDeets.Name, dto.Name, supplierDeets.Name, uniqueNumber,dto.RetailPrice);
 
                     _logger.LogInformation("Generated SKU {SKU} for product {ProductName}", ProductSku, dto.Name);
 

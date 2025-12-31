@@ -16,7 +16,7 @@ namespace IMS.API.Controllers
             _productWarehouseService = productWarehouseService;
         }
 
-        [Authorize(Policy = "AdminOnly")]
+        //[Authorize(Policy = "AdminOnly")]
         [HttpPost("update-product")]
         public async Task<IActionResult> UpdateProductInWarehouse(
             [FromQuery] Guid productId,
@@ -42,7 +42,7 @@ namespace IMS.API.Controllers
             }
         }
 
-        [Authorize(Policy = "AdminOnly")]
+        //[Authorize(Policy = "AdminOnly")]
         [HttpPost("transfer-product")]
         public async Task<IActionResult> TransferProduct(
             [FromQuery] Guid productId,

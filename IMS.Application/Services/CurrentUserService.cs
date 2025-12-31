@@ -1,5 +1,6 @@
 ﻿using IMS.Application.Interfaces;
 using Microsoft.AspNetCore.Http;
+using System.Security.Claims;
 namespace IMS.Application.Services
 {
     public class CurrentUserService : ICurrentUserService
@@ -13,7 +14,7 @@ namespace IMS.Application.Services
 
         public Guid GetCurrentUserId()
         {
-            var userIdClaim = _httpContextAccessor.HttpContext?.User?.FindFirst("id");
+            var userIdClaim = _httpContextAccessor.HttpContext?.User?.FindFirst(ClaimTypes.NameIdentifier);
             if (userIdClaim == null)
             {
                 throw new UnauthorizedAccessException("User ID not found");

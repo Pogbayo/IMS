@@ -1,5 +1,6 @@
 ﻿using IMS.Application.DTO.Company;
 using IMS.Application.Interfaces;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -7,6 +8,8 @@ namespace IMS.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
+
     public class CompanyController : BaseController
     {
         private readonly ICompanyService _companyService;

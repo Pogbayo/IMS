@@ -228,11 +228,20 @@ namespace IMS.Application.Services
                     .ThenInclude(pw => pw!.Product)
                     .Where(st => st.CompanyId == companyId);
 
-                var company = await _context.Companies.FirstOrDefaultAsync(c => c.Id == companyId);
+                var company = await _context.Companies
+                    .Include(c => c.CreatedBy) 
+                    .FirstOrDefaultAsync(c => c.Id == companyId);
+
                 if (company == null)
                 {
                     await _audit.LogAsync(userId, companyId, AuditAction.Failed, "Company not found");
                     return Result<CompanyDto>.FailureResponse("Company not found");
+                }
+
+                if (company.CreatedBy == null)
+                {
+                    await _audit.LogAsync(userId, companyId, AuditAction.Failed, "Company has no creator assigned");
+                    return Result<CompanyDto>.FailureResponse("Company creator not found");
                 }
 
                 var ProductsCount = company.Products.Count();
@@ -242,7 +251,7 @@ namespace IMS.Application.Services
                     Id = company.Id,
                     Name = company.Name,
                     CompanyEmail = company.Email,
-                    AdminEmail = company.CreatedBy.Email!,
+                    AdminEmail = company.CreatedBy.Email ?? "Unknown",
                     HeadOffice = company.HeadOffice,
                     CreatedAt = company.CreatedAt,
                     UpdatedAt = company.UpdatedAt,

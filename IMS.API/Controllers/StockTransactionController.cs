@@ -18,7 +18,7 @@ namespace IMS.API.Controllers
             _stockTransactionService = stockTransactionService;
         }
 
-        [Authorize(Policy = "Everyone")]
+        //[Authorize(Policy = "Everyone")]
         [HttpGet("get-transactions")]
         public async Task<IActionResult> GetStockTransactions(
             [FromQuery] Guid companyId,
@@ -47,7 +47,7 @@ namespace IMS.API.Controllers
                 : ErrorResponse(result.Error ?? "Failed to fetch stock transactions", result.Message);
         }
 
-        [Authorize(Policy = "AdminOnly")]
+        //[Authorize(Policy = "AdminOnly")]
         [HttpPost("log-transaction")]
         public async Task<IActionResult> LogTransaction([FromBody] CreateStockTransactionDto dto)
         {

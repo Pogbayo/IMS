@@ -1,5 +1,6 @@
 ﻿using IMS.Application.Interfaces;
 using IMS.Domain.Entities;
+using IMS.Domain.Enums;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -77,6 +78,13 @@ namespace IMS.Infrastructure.Persistence
             modelBuilder.Entity<Category>().HasQueryFilter(a => !a.IsDeleted);
             modelBuilder.Entity<CompanyDailyStat>().HasQueryFilter(a => !a.IsDeleted);
 
+
+            modelBuilder.Entity<AuditLog>()
+                .Property(a => a.Action)
+                .HasConversion(
+                    v => v.ToString(),              
+                    v => Enum.Parse<AuditAction>(v) 
+                );
 
             modelBuilder.Entity<Expense>()
                 .Property(e => e.Amount)
