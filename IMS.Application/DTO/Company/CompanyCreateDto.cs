@@ -25,6 +25,6 @@ namespace IMS.Application.DTO.Company
         public string CompanyLine { get; set; } = string.Empty;
         public string? HeadOffice { get; set; }
 
-        public IList<CreateWarehouseDto> Warehouses = new List<CreateWarehouseDto>();
+        //public IList<CreateWarehouseDto> Warehouses = new List<CreateWarehouseDto>();
     } 
 }

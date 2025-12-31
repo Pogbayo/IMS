@@ -26,7 +26,9 @@ namespace IMS.Application.Services
         private readonly ICustomMemoryCache _cache;
         private readonly IJobQueue _jobqueue;
         private readonly IMailerService _mailer;
+        private readonly IPhoneValidator _phonevalidator;
         public CompanyService(
+            IPhoneValidator phonevalidator,
             IJobQueue jobqueue,
             IMailerService mailer,
             ILogger<CompanyService> logger,
@@ -41,6 +43,7 @@ namespace IMS.Application.Services
         )
         {
             _jobqueue = jobqueue;
+            _phonevalidator = phonevalidator;
             _mailer = mailer;
             _logger = logger;
             _context = context;
@@ -62,7 +65,6 @@ namespace IMS.Application.Services
             try
             {
                
-
                 var company = new Company
                 {
                     Name = dto.CompanyName!,
@@ -73,7 +75,7 @@ namespace IMS.Application.Services
                 _context.Companies.Add(company);
                 await _context.SaveChangesAsync();
 
-              
+                 await _phonevalidator.Validate(dto.AdminPhoneNumber!);
 
                 var appUser = new AppUser
                 {
@@ -82,7 +84,8 @@ namespace IMS.Application.Services
                     Email = dto.Email,
                     UserName = dto.Email,
                     CompanyId = company.Id,
-                    IsCompanyAdmin = true
+                    IsCompanyAdmin = true,
+                    PhoneNumber = dto.AdminPhoneNumber!
                 };
 
                 var identityResult = await _userManager.CreateAsync(appUser, dto.Password);
@@ -96,7 +99,7 @@ namespace IMS.Application.Services
                         $"User registration failed: {errors}"
                     );
                 }
-              
+                appUser.EmailConfirmed = true;
 
                 if (!await _roleManager.RoleExistsAsync("Admin"))
                 {
@@ -141,6 +144,7 @@ namespace IMS.Application.Services
                     AdminId = appUser.Id,
                     CompanyId = company.Id,
                     Name = company.Name!,
+                    FirstName = company.CreatedBy.FirstName,
                     CreatedAt = company.CreatedAt,
                     CompanyEmail = company.Email,
                     HeadOffice = company.HeadOffice,

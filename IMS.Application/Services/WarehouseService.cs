@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using System.ComponentModel.DataAnnotations;
+using static Microsoft.EntityFrameworkCore.DbLoggerCategory.Database;
 
 namespace IMS.Application.Services
 {
@@ -21,9 +22,12 @@ namespace IMS.Application.Services
         private readonly ICurrentUserService _currentUserService;
         private readonly IPhoneValidator _phoneValidator;
         private readonly UserManager<AppUser> _userManager;
+        private readonly IJobQueue _jobqueue;
+             
         private readonly ICustomMemoryCache _cache;
 
         public WarehouseService(UserManager<AppUser> usermanager,
+                                IJobQueue jobqueue,
                                 ILogger<CompanyService> logger,
                                 IAppDbContext context,
                                 IAuditService audit,
@@ -32,6 +36,7 @@ namespace IMS.Application.Services
                                 ICustomMemoryCache cache)
         {
             _logger = logger;
+            _jobqueue = jobqueue;
             _context = context;
             _audit = audit;
             _currentUserService = currentUserService;
@@ -84,8 +89,14 @@ namespace IMS.Application.Services
             try
             {
                 var userId = _currentUserService.GetCurrentUserId();
-                await _audit.LogAsync(userId, dto.CompanyId, AuditAction.Create,
-                    $"Warehouse '{warehouse.Name}' created successfully");
+
+                _jobqueue.Enqueue<IAuditService>(
+                       job => job.LogAsync(
+                           userId,
+                           dto.CompanyId,
+                           AuditAction.Create,
+                           $"Warehouse '{dto.Name}' registered with admin '{dto.CompanyId}'."
+                       ));
             }
             catch { }
 

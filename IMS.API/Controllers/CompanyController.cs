@@ -19,6 +19,7 @@ namespace IMS.API.Controllers
             _companyService = companyService;
         }
 
+        [AllowAnonymous]
         [HttpPost("register")]
         public async Task<IActionResult> RegisterCompanyAndAdmin([FromBody] CompanyCreateDto dto)
         {

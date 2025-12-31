@@ -1,4 +1,5 @@
 ﻿using CloudinaryDotNet.Actions;
+using Hangfire;
 using IMS.Application.ApiResponse;
 using IMS.Application.DTO.Audit;
 using IMS.Application.Interfaces;
@@ -25,6 +26,7 @@ namespace IMS.Application.Services
             _logger = logger;
         }
 
+        [Queue("audit")]
         public async Task<Result<List<AuditDto>>> GetAudits(Guid companyId, int pageSize, int pageNumber)
         {
             _logger.LogInformation("Fetching Audits for company");

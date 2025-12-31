@@ -7,6 +7,7 @@ namespace IMS.Domain.Entities
         public string Location { get; set; } = string.Empty;
         public Guid CompanyId { get; set; }
         public Company Company { get; set; } = default!;
+        public string PhoneNumber { get; set; } = string.Empty;
         public ICollection<ProductWarehouse> ProductWarehouses { get; set; } = new List<ProductWarehouse>();
     }
 }

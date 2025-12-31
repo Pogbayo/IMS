@@ -1,7 +1,8 @@
-﻿using MimeKit;     
+﻿using Hangfire;
 using MailKit.Security;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using MimeKit;     
 
 namespace IMS.Infrastructure.Mailer
 {
@@ -14,6 +15,8 @@ namespace IMS.Infrastructure.Mailer
             _logger = logger;
             _smtpSettings = settings.Value;
         }
+
+        [Queue("email")]
         public async Task SendEmailAsync(string toEmail, string subject, string body)
         {
             var email = new MimeMessage();

@@ -12,8 +12,6 @@
         public bool IsActive { get; set; } = false;
         public DateTime? MadeActive { get; set; }
 
-        public string PhoneNumber { get; set; } = string.Empty;
-
         public void MarkAsUpdated()
         {
             IsUpdated = true;
