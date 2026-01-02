@@ -113,9 +113,12 @@ namespace IMS.Application.Services
             if (dto == null)
             {
                 _logger.LogWarning("Product DTO is null");
+
                 var userIdNullDto = _currentUserService.GetCurrentUserId();
                 var companyIdNullDto = await GetCurrentUserCompanyIdAsync();
-                await _audit.LogAsync(userIdNullDto, companyIdNullDto, Domain.Enums.AuditAction.Create, "Attempted to create product with null DTO");
+
+                _jobqueue.EnqueueAudit(userIdNullDto, companyIdNullDto, Domain.Enums.AuditAction.Create, "Attempted to create product with null DTO");
+
                 return Result<Guid>.FailureResponse("Bad Request");
             }
 
@@ -134,7 +137,7 @@ namespace IMS.Application.Services
                 if (supplierDeets == null)
                 {
                     _logger.LogWarning("Supplier not found with ID {SupplierId}", dto.SupplierId);
-                    await _audit.LogAsync(userId, companyId, Domain.Enums.AuditAction.Create, $"Attempted to create product but supplier {dto.SupplierId} not found");
+                    _jobqueue.EnqueueAudit(userId, companyId, Domain.Enums.AuditAction.Create, $"Attempted to create product but supplier {dto.SupplierId} not found");
                     return Result<Guid>.FailureResponse("Supplier not found");
                 }
 
@@ -143,7 +146,7 @@ namespace IMS.Application.Services
                 if (referenceWarehouseId == Guid.Empty)
                 {
                     _logger.LogWarning("No warehouse provided for product creation");
-                    await _audit.LogAsync(userId, companyId, Domain.Enums.AuditAction.Create, "Attempted to create product without any warehouses");
+                    _jobqueue.EnqueueAudit(userId, companyId, Domain.Enums.AuditAction.Create, "Attempted to create product without any warehouses");
                     return Result<Guid>.FailureResponse("At least one warehouse is required");
                 }
 
@@ -155,7 +158,7 @@ namespace IMS.Application.Services
                 if (warehouseDeets == null)
                 {
                     _logger.LogWarning("Reference warehouse not found with ID {WarehouseId}", referenceWarehouseId);
-                    await _audit.LogAsync(userId, companyId, Domain.Enums.AuditAction.Create, $"Attempted to create product but reference warehouse {referenceWarehouseId} not found");
+                    _jobqueue.EnqueueAudit(userId, companyId, Domain.Enums.AuditAction.Create, $"Attempted to create product but reference warehouse {referenceWarehouseId} not found");
                     return Result<Guid>.FailureResponse("Reference warehouse not found");
                 }
 
@@ -201,7 +204,7 @@ namespace IMS.Application.Services
                         CompanyId = dto.CompanyId,
                     };
 
-                    await _audit.LogAsync(userId, companyId, Domain.Enums.AuditAction.Create, $"Product '{Product.Name}' with SKU '{Product.SKU}' created successfully");
+                    _jobqueue.EnqueueAudit(userId, companyId, Domain.Enums.AuditAction.Create, $"Product '{Product.Name}' with SKU '{Product.SKU}' created successfully");
                     _logger.LogInformation("Created product {ProductName} with SKU {SKU}", Product.Name, Product.SKU);
 
                     try
@@ -229,7 +232,7 @@ namespace IMS.Application.Services
                             await _context.SaveChangesAsync();
 
                             _logger.LogInformation("Linked product {ProductName} to warehouse {WarehouseId}", Product.Name, warehouseId);
-                            await _audit.LogAsync(userId, companyId, Domain.Enums.AuditAction.Create, $"Product '{Product.Name}' linked to {dto.Warehouses.Count} warehouse(s)");
+                            _jobqueue.EnqueueAudit(userId, companyId, Domain.Enums.AuditAction.Create, $"Product '{Product.Name}' linked to {dto.Warehouses.Count} warehouse(s)");
                             _logger.LogInformation("Successfully created product {ProductName} and linked to {WarehouseCount} warehouse(s)", Product.Name, dto.Warehouses.Count);
 
                             await transaction.CommitAsync();
@@ -295,7 +298,7 @@ namespace IMS.Application.Services
 
             if (productId == Guid.Empty)
             {
-                await _audit.LogAsync(
+                _jobqueue.EnqueueAudit(
                     userId,
                     companyId,
                     AuditAction.Read,
@@ -316,7 +319,7 @@ namespace IMS.Application.Services
             {
                 _logger.LogInformation(
                   "Summary cache miss for product {ProductId}",
-                  productId);
+                   productId);
 
                 summary = await _context.Products
                      .Where(p => p.Id == productId)
@@ -342,7 +345,7 @@ namespace IMS.Application.Services
                 {
                     _logger.LogWarning("Product not found");
 
-                    await _audit.LogAsync(
+                    _jobqueue.EnqueueAudit(
                        userId,
                        companyId,
                        AuditAction.Read,
@@ -504,7 +507,7 @@ namespace IMS.Application.Services
                    "User {UserId} successfully retrieved product {ProductId}",
                    userId, productId);
 
-            await _audit.LogAsync(
+            _jobqueue.EnqueueAudit(
                 userId,
                 companyId,
                 AuditAction.Read,
@@ -600,13 +603,12 @@ namespace IMS.Application.Services
                     "Cached {Count} products for Company {CompanyId} (Page {Page}, Size {Size})",
                     companyProducts.Count, companyId, pageNumber, pageSize);
 
-
-                _jobqueue.Enqueue<IAuditService>(
-                        job => job.LogAsync(
+                _jobqueue.EnqueueAudit(
                             userId,
                             companyId,
                             AuditAction.Read,
-                            $"Fetched company products (Page {pageNumber}, Size {pageSize})"));
+                            $"Fetched company products (Page {pageNumber}, Size {pageSize})"
+                            );
 
 
                 return Result<List<ProductsDto>>
@@ -649,7 +651,7 @@ namespace IMS.Application.Services
 
             await _context.SaveChangesAsync();
 
-            await _audit.LogAsync(
+            _jobqueue.EnqueueAudit(
                 userId,
                 product.CompanyId, 
                 AuditAction.Update,
@@ -688,11 +690,11 @@ namespace IMS.Application.Services
 
             await _context.SaveChangesAsync();
 
-            _jobqueue.Enqueue<IAuditService>(
-                job => job.LogAsync(userId,
+            _jobqueue.EnqueueAudit(userId,
                 product.CompanyId,
                 AuditAction.Delete,
-                $"Deleted product '{product.Name}' with ID {product.Id}"));
+                $"Deleted product '{product.Name}' with ID {product.Id}"
+                );
            
             _logger.LogInformation("Product '{ProductName}' marked as deleted by user {UserId}", product.Name, userId);
             _cache.Remove($"Product:{productId}:Summary");
@@ -749,7 +751,7 @@ namespace IMS.Application.Services
                 if (!warehouseProductsList.Any())
                 {
                     _logger.LogInformation("User {UserId} attempted to fetch products in warehouse {WarehouseId} but no products found", userId, warehouseId);
-                    await _audit.LogAsync(userId, companyId, AuditAction.Read, $"Attempted to fetch products with Warehouse Id: {warehouseId}");
+                    _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Attempted to fetch products with Warehouse Id: {warehouseId}");
                     return Result<WarehouseProductsResponse>.FailureResponse("No products found in this warehouse");
                 }
 
@@ -766,7 +768,7 @@ namespace IMS.Application.Services
                 });
 
                 _logger.LogInformation("User {UserId} fetched products in warehouse {WarehouseId}", userId, warehouseId);
-                await _audit.LogAsync(userId, companyId, AuditAction.Read, $"Fetched products with Warehouse Id: {warehouseId}");
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Fetched products with Warehouse Id: {warehouseId}");
 
                 return Result<WarehouseProductsResponse>.SuccessResponse(response, "Warehouse products retrieved successfully");
             }
@@ -789,7 +791,7 @@ namespace IMS.Application.Services
             {
                 _logger.LogWarning("Invalid ProductId provided");
 
-                await _audit.LogAsync(
+                _jobqueue.EnqueueAudit(
                     userId,
                     companyId,
                     AuditAction.Update,
@@ -803,7 +805,7 @@ namespace IMS.Application.Services
             {
                 _logger.LogWarning("Empty or null image uploaded for product {ProductId}", productId);
 
-                await _audit.LogAsync(
+                _jobqueue.EnqueueAudit(
                     userId,
                     companyId,
                     AuditAction.Update,
@@ -818,7 +820,7 @@ namespace IMS.Application.Services
             {
                 _logger.LogWarning("Product {ProductId} not found", productId);
 
-                await _audit.LogAsync(
+                _jobqueue.EnqueueAudit(
                     userId,
                     companyId,
                     AuditAction.Update,
@@ -846,7 +848,7 @@ namespace IMS.Application.Services
                     productId
                 );
 
-                await _audit.LogAsync(
+                _jobqueue.EnqueueAudit(
                     userId,
                     companyId,
                     AuditAction.Update,
@@ -867,7 +869,7 @@ namespace IMS.Application.Services
                     productId
                 );
 
-                await _audit.LogAsync(
+                _jobqueue.EnqueueAudit(
                     userId,
                     companyId,
                     AuditAction.Update,
@@ -911,7 +913,7 @@ namespace IMS.Application.Services
                 if (totalCount == 0)
                 {
                     _logger.LogInformation("No products found with SKU {SKU} for user {UserId}", sku, userId);
-                    await _audit.LogAsync(userId, companyId, AuditAction.Read, $"No products found with SKU {sku}");
+                    _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"No products found with SKU {sku}");
                     return Result<PaginatedProductsDto>.FailureResponse("No products found with this SKU");
                 }
 
@@ -941,7 +943,7 @@ namespace IMS.Application.Services
                 });
 
                 _logger.LogInformation("User {UserId} fetched {Count} products by SKU {SKU} and cached the result", userId, products.Count, sku);
-                await _audit.LogAsync(userId, companyId, AuditAction.Read, $"Fetched {products.Count} products by SKU {sku}");
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Fetched {products.Count} products by SKU {sku}");
 
                 return Result<PaginatedProductsDto>.SuccessResponse(paginatedResult, "Products retrieved successfully");
             }
@@ -958,7 +960,6 @@ namespace IMS.Application.Services
 
             pageNumber = Math.Max(pageNumber, 1);
             pageSize = Math.Clamp(pageSize, 1, 100);
-
     
             var cacheKey = $"Products:Filtered:" +
                            $"Warehouse:{warehouseId}:" +
@@ -973,12 +974,9 @@ namespace IMS.Application.Services
             if (_cache.TryGetValue(cacheKey, out List<ProductsDto> cachedProducts))
             {
                 _logger.LogInformation("Filtered products cache HIT");
-                return Result<List<ProductsDto>>.SuccessResponse(
-                    cachedProducts,
-                    "Products retrieved from cache");
+                return Result<List<ProductsDto>>.SuccessResponse(cachedProducts,"Products retrieved from cache");
             }
 
-        
             var query = _context.Products.AsQueryable();
 
             if (warehouseId.HasValue)
@@ -1004,7 +1002,6 @@ namespace IMS.Application.Services
                 return Result<List<ProductsDto>>.FailureResponse("No products found");
             }
 
-          
             var products = await query
                 .Skip((pageNumber - 1) * pageSize)
                 .Take(pageSize)
@@ -1017,7 +1014,6 @@ namespace IMS.Application.Services
                 ))
                 .ToListAsync();
 
-           
             _cache.Set(
                 cacheKey,
                 products,
@@ -1029,9 +1025,7 @@ namespace IMS.Application.Services
 
             _logger.LogInformation("Filtered products cached with key {CacheKey}", cacheKey);
 
-            return Result<List<ProductsDto>>.SuccessResponse(
-                products,
-                "Products retrieved successfully");
+            return Result<List<ProductsDto>>.SuccessResponse(products,"Products retrieved successfully");
         }
     }
 }
