@@ -1,5 +1,6 @@
 ﻿using Hangfire.Common;
 using IMS.Application.ApiResponse;
+using IMS.Application.Helpers;
 using IMS.Application.Interfaces;
 using IMS.Application.Interfaces.IAudit;
 using IMS.Domain.Entities;
@@ -76,7 +77,7 @@ namespace IMS.Application.Services
                 {
                     _logger.LogWarning("DeleteSupplier failed: Supplier with ID {SupplierId} not found.", supplierId);
 
-                    await _audit.LogAsync(userId, companyId, AuditAction.Delete,
+                    _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Delete,
                         $"Failed delete attempt: Supplier {supplierId} not found.");
 
                     return Result<string>.FailureResponse("Supplier not found.");
@@ -102,9 +103,9 @@ namespace IMS.Application.Services
                     The {company.Name} Team
                     ";
 
-                _jobqueue.Enqueue<IMailerService>(job => job.SendEmailAsync(supplier.Email, "Notice of Removal", body));
-                _jobqueue.Enqueue<IAuditService>(job => job.LogAsync(userId, companyId, AuditAction.Delete,
-                    $"Supplier '{supplier.Name}' (ID: {supplier.Id}) deleted by User {userId}"));
+                _jobqueue.EnqueueEmail(supplier.Email, "Notice of Removal", body);
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Delete,
+                    $"Supplier '{supplier.Name}' (ID: {supplier.Id}) deleted by User {userId}");
 
                 _logger.LogInformation("Supplier '{SupplierName}' (ID {SupplierId}) successfully deleted.", supplier.Name, supplier.Id);
 
@@ -115,7 +116,7 @@ namespace IMS.Application.Services
                 _logger.LogError(ex, "Unexpected error occurred while deleting Supplier {SupplierId}", supplierId);
                 var companyId = await GetCurrentUserCompanyIdAsync();
 
-                await _audit.LogAsync(_currentUserService.GetCurrentUserId(), companyId, AuditAction.Error,
+                _jobqueue.EnqueueAudit(_currentUserService.GetCurrentUserId(), companyId, AuditAction.Error,
                     $"DeleteSupplier exception for Supplier {supplierId}");
 
                 return Result<string>.FailureResponse("Error deleting supplier.");
@@ -135,7 +136,7 @@ namespace IMS.Application.Services
                 {
                     _logger.LogWarning("GetAllSuppliers failed: CompanyId missing.");
 
-                    await _audit.LogAsync(userId, companyId, AuditAction.Read, "GetAllSuppliers failed: empty CompanyId.");
+                    _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, "GetAllSuppliers failed: empty CompanyId.");
                     return Result<List<SupplierDto>>.FailureResponse("Company ID is required.");
                 }
 
@@ -166,13 +167,13 @@ namespace IMS.Application.Services
                 {
                     _logger.LogInformation("No suppliers found for CompanyId {CompanyId}.", companyId);
 
-                    await _audit.LogAsync(userId, companyId, AuditAction.Read, "No suppliers found.");
+                    _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, "No suppliers found.");
                     return Result<List<SupplierDto>>.FailureResponse("No suppliers found.");
                 }
 
                 _logger.LogInformation("Retrieved {Count} suppliers for CompanyId {CompanyId}.", suppliers.Count, companyId);
 
-                await _audit.LogAsync(userId, companyId, AuditAction.Read, $"Retrieved {suppliers.Count} suppliers.");
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Retrieved {suppliers.Count} suppliers.");
 
                 return Result<List<SupplierDto>>.SuccessResponse(suppliers);
             }
@@ -180,7 +181,7 @@ namespace IMS.Application.Services
             {
                 _logger.LogError(ex, "Unexpected error occurred in GetAllSuppliers.");
                 var companyId = await GetCurrentUserCompanyIdAsync();
-                await _audit.LogAsync(_currentUserService.GetCurrentUserId(), companyId, AuditAction.Failed,
+                _jobqueue.EnqueueAudit(_currentUserService.GetCurrentUserId(), companyId, AuditAction.Failed,
                     "GetAllSuppliers threw an exception.");
 
                 return Result<List<SupplierDto>>.FailureResponse("Error fetching suppliers.");
@@ -238,14 +239,13 @@ namespace IMS.Application.Services
                     The {company.Name} Team
                     ";
 
-                _jobqueue.Enqueue<IMailerService>(mailer =>
-                    mailer.SendEmailAsync(supplier.Email!, "Company Registration!", body)
-                );
+                _jobqueue.EnqueueEmail(supplier.Email!, "Company Registration!", body);
+              
 
                 var userId = _currentUserService.GetCurrentUserId();
 
-                _jobqueue.Enqueue<IAuditService>(job => job.LogAsync(userId, companyId, AuditAction.Create,
-                    $"Supplier '{supplier.Name}' was created by user {userId}"));
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Create,
+                    $"Supplier '{supplier.Name}' was created by user {userId}");
 
                 _logger.LogInformation("Supplier registration completed successfully for {SupplierName}", dto.Name);
                 return Result<string>.SuccessResponse("Supplier created successfully");
@@ -283,7 +283,7 @@ namespace IMS.Application.Services
                 _cache.RemoveByPrefix($"Suppliers_{supplier.CompanyId}_");
 
                 var userId = _currentUserService.GetCurrentUserId();
-                await _audit.LogAsync(userId, supplier.CompanyId, AuditAction.Update,
+                _jobqueue.EnqueueAudit(userId, supplier.CompanyId, AuditAction.Update,
                     $"Supplier {supplier.Name} (ID: {supplier.Id}) was updated by {userId}");
 
                 return Result<string>.SuccessResponse("Supplier updated successfully.");
@@ -291,7 +291,7 @@ namespace IMS.Application.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error updating supplier with ID {SupplierId}", dto.Id);
-                await _audit.LogAsync(_currentUserService.GetCurrentUserId(), Guid.Empty, AuditAction.Error,
+                _jobqueue.EnqueueAudit(_currentUserService.GetCurrentUserId(), Guid.Empty, AuditAction.Error,
                     $"UpdateSupplier encountered an exception for Supplier {dto.Id}");
                 return Result<string>.FailureResponse("An error occurred while updating the supplier.");
             }
@@ -313,7 +313,7 @@ namespace IMS.Application.Services
                 if (companyId == Guid.Empty)
                 {
                     _logger.LogWarning("GetSupplierByName failed: CompanyId missing.");
-                    await _audit.LogAsync(userId, companyId, AuditAction.Read,
+                    _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read,
                         "GetSupplierByName failed: empty CompanyId.");
                     return Result<SupplierDto>.FailureResponse("Company ID is required.");
                 }
@@ -339,13 +339,13 @@ namespace IMS.Application.Services
                 if (supplier == null)
                 {
                     _logger.LogInformation("No supplier found with name '{Name}' in CompanyId {CompanyId}.", name, companyId);
-                    await _audit.LogAsync(userId, companyId, AuditAction.Read,
+                    _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read,
                         $"No supplier found with name '{name}'.");
                     return Result<SupplierDto>.FailureResponse("Supplier not found.");
                 }
 
                 _logger.LogInformation("Supplier '{Name}' retrieved successfully for CompanyId {CompanyId}.", name, companyId);
-                await _audit.LogAsync(userId, companyId, AuditAction.Read,
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read,
                     $"Supplier '{name}' retrieved successfully.");
 
                 return Result<SupplierDto>.SuccessResponse(supplier);
@@ -356,10 +356,10 @@ namespace IMS.Application.Services
 
                 var companyId = await GetCurrentUserCompanyIdAsync();
 
-                await _audit.LogAsync(userId: _currentUserService.GetCurrentUserId(),
-                    companyId: companyId,
-                    action: AuditAction.Error,
-                    description: $"GetSupplierByName error for supplier '{name}'");
+                _jobqueue.EnqueueAudit(userId: _currentUserService.GetCurrentUserId(),
+                    companyId,
+                    AuditAction.Error,
+                    $"GetSupplierByName error for supplier '{name}'");
 
                 return Result<SupplierDto>.FailureResponse("Error fetching supplier.");
             }
