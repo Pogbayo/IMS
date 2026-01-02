@@ -74,12 +74,12 @@ namespace IMS.API.Controllers
 
         [Authorize(Policy = "AdminOnly")]
         [HttpDelete("delete/{userId}")]
-        public async Task<IActionResult> DeleteUser([FromRoute] Guid userId)
+        public async Task<IActionResult> DeleteUser([FromRoute] Guid userId, [FromRoute] Guid companyId)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            var result = await _userService.DeleteUser(userId);
+            var result = await _userService.RemoveUserFromCompany(userId,companyId);
             return result.Success
                 ? OkResponse(result)
                 : ErrorResponse(result.Error!);

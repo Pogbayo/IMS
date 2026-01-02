@@ -14,6 +14,7 @@ namespace IMS.Domain.Entities
         public bool IsCompanyAdmin { get; set; } = false;
         public Guid? CompanyId { get; set; }
         public Company? Company { get; set; } = default!;
+        public int Tokenversion { get; set; } = 1;
         public Company? CreatedCompany { get; set; }
         public ICollection<AuditLog> AuditLogs { get; set; } = new List<AuditLog>();
         public void MarkAsDeleted()
