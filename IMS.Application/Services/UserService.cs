@@ -443,7 +443,6 @@ namespace IMS.Application.Services
 
             return Result<string>.SuccessResponse("Password updated successfully");
         }
-
     }
 }
 #endregion
