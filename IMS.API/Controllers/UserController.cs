@@ -100,6 +100,20 @@ namespace IMS.API.Controllers
                 : ErrorResponse(result.Error!);
         }
 
+        [Authorize(Policy ="AdminOnly")]
+        [HttpPost("logout/{userId}")]
+        public async Task<IActionResult> Logout([FromRoute] Guid userId)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var result = await _userService.Logout(userId);
+            return result.Success
+                ? OkResponse(result)
+                : ErrorResponse(result.Error!);
+        }
+
+
         [Authorize(Policy = "Everyone")]
         [HttpGet("by-id")]
         public async Task<IActionResult> GetById([FromQuery] Guid userId)
@@ -129,6 +143,36 @@ namespace IMS.API.Controllers
             return result.Success
                 ? OkResponse(result)
                 : ErrorResponse(result.Error!);
+        }
+
+        [Authorize]
+        [HttpPost("send-confirmation-email")]
+        public async Task<IActionResult> SendConfirmationEmail([FromQuery] string email)
+        {
+            if (string.IsNullOrWhiteSpace(email))
+                return BadRequest("Email is required");
+
+            var result = await _userService.SendConfirmationLink(email);
+
+            return result.Success
+                ? Ok(result)
+                : BadRequest(result);
+        }
+
+        [AllowAnonymous]
+        [HttpPost("confirm-email")]
+        public async Task<IActionResult> ConfirmEmail(
+            [FromQuery] Guid userId,
+            [FromQuery] string token)
+        {
+            if (userId == Guid.Empty || string.IsNullOrWhiteSpace(token))
+                return BadRequest("Invalid confirmation data");
+
+            var result = await _userService.ConfirmEmail(userId, token);
+
+            return result.Success
+                ? Ok(result)
+                : BadRequest(result);
         }
     }
 }

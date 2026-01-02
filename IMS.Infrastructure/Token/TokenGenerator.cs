@@ -42,7 +42,7 @@ namespace IMS.Infrastructure.Token
             {
                 claims.Add(new Claim(ClaimTypes.Role, role));
             }
-            //new Claim("tokenVersion", user.TokenVersion.ToString())
+            new Claim("tokenVersion", user.Tokenversion.ToString());
 
             var expiryMinutes = _jwtSettings.ExpireHours * 60;
             SymmetricSecurityKey symmetricSecurityKey = new(Encoding.UTF8.GetBytes(_jwtSettings.Key));

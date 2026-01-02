@@ -1,16 +1,17 @@
 ﻿using IMS.Application.ApiResponse;
 using IMS.Application.DTO.User;
+using IMS.Application.Helpers;
 using IMS.Application.Interfaces;
 using IMS.Application.Interfaces.IAudit;
 using IMS.Domain.Entities;
 using IMS.Domain.Enums;
 using IMS.Infrastructure.Mailer;
+using IMS.Infrastructure.Token;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
-using IMS.Infrastructure.Token;
 
 namespace IMS.Application.Services
 {
@@ -51,6 +52,9 @@ namespace IMS.Application.Services
             _audit = audit;
         }
 
+
+        #region User Operations
+
         public async Task<Result<AddedUserResponseDto>> AddUserToCompany(CreateUserDto dto)
         {
             try
@@ -64,7 +68,6 @@ namespace IMS.Application.Services
                 var password = $"{dto.FirstName}123$";
 
                 var result = await _userManager.CreateAsync(user, password);
-
                 if (!result.Succeeded)
                     return Result<AddedUserResponseDto>.FailureResponse(string.Join("; ", result.Errors.Select(e => e.Description)));
 
@@ -76,38 +79,26 @@ namespace IMS.Application.Services
 
                 if (company == null)
                 {
-                    _logger.LogWarning("Company not found");
+                    _logger.LogWarning("Company not found for Id {CompanyId}", dto.CompanyId);
+                    return Result<AddedUserResponseDto>.FailureResponse("Company not found");
                 }
 
-                company!.Users.Add(user);
-
+                company.Users.Add(user);
                 await _context.SaveChangesAsync();
 
-                _jobqueue.Enqueue<IAuditService>(job => job.LogAsync(
-                   user.Id,
-                   company.Id,
-                   AuditAction.Create,
-                   $"User {dto.Email} added.")
-                );
-               
-                _logger.LogInformation("User {UserName} created successfully to the company", dto.UserName);
+                _jobqueue.EnqueueAudit(user.Id, dto.CompanyId, AuditAction.Create, $"User {dto.Email} added to company.");
+                _jobqueue.EnqueueEmail(user.Email, "You have been added to a company", $"Hello,\n\nYou have been added to the company: {dto.CompanyId}. You can now log in using your credentials.");
 
-                _jobqueue.Enqueue<IMailerService>(job => job.SendEmailAsync(
-                  user.Email,
-                  $"You have been added to a company",
-                  $"Hello,\n\nYou have been added to the company: {dto.CompanyId}. You can now log in using your credentials.")
-               );
+                _cache.Remove($"company:{dto.CompanyId}:users");
 
-               _cache.Remove($"company:{dto.CompanyId}:users");
+                _logger.LogInformation("User {UserName} created successfully for company {CompanyId}", dto.UserName, dto.CompanyId);
 
-                var userdetails = new AddedUserResponseDto
+                return Result<AddedUserResponseDto>.SuccessResponse(new AddedUserResponseDto
                 {
                     UserId = user.Id,
                     Email = user.Email,
                     LoginPassword = password
-                };
-
-                return Result<AddedUserResponseDto>.SuccessResponse(userdetails);
+                });
             }
             catch (Exception ex)
             {
@@ -115,6 +106,7 @@ namespace IMS.Application.Services
                 return Result<AddedUserResponseDto>.FailureResponse("Failed to add user");
             }
         }
+
         public async Task<Result<LoginResponseDto>> Login(LoginUserDto userDetails)
         {
             if (string.IsNullOrWhiteSpace(userDetails.Email) || string.IsNullOrWhiteSpace(userDetails.Password))
@@ -124,22 +116,23 @@ namespace IMS.Application.Services
             }
 
             var user = await _userManager.FindByEmailAsync(userDetails.Email);
-
-            if (user is null)
+            if (user == null)
             {
-                _logger.LogWarning("User not found.");
+                _logger.LogWarning("User not found for email {Email}", userDetails.Email);
                 return Result<LoginResponseDto>.FailureResponse("User with provided email address does not exist");
             }
 
             var token = await _tokenGenerator.GenerateAccessToken(user);
-
             if (string.IsNullOrEmpty(token))
             {
-                _logger.LogError("Token generation failed");
+                _logger.LogError("Token generation failed for user {UserId}", user.Id);
                 throw new ArgumentNullException("Token is null");
             }
 
-            var newObject = new LoginResponseDto
+            if (!user.CompanyId.HasValue)
+                return Result<LoginResponseDto>.FailureResponse("User has no company");
+
+            var response = new LoginResponseDto
             {
                 Token = token,
                 User = new UserDto
@@ -148,22 +141,110 @@ namespace IMS.Application.Services
                     Email = user.Email!,
                     FirstName = user.FirstName,
                     PhoneNumber = user.PhoneNumber!,
-                    IsCompanyAdmin  = user.IsCompanyAdmin,
+                    IsCompanyAdmin = user.IsCompanyAdmin,
                     UserName = user.FirstName,
                     CompanyId = user.CompanyId
-                },
+                }
             };
 
-            _logger.LogInformation($"This is the user details,{user}");
-            return Result<LoginResponseDto>.SuccessResponse(newObject, "Login successful.");
+            _logger.LogInformation("User {UserId} logged in", user.Id);
+
+            _jobqueue.EnqueueAudit(user.Id, user.CompanyId!.Value, AuditAction.Login, $"{user.FirstName} logged in.");
+            _jobqueue.EnqueueEmail(user.Email!,$"Welcome back {user.FirstName}",$"Hello {user.FirstName},\n\nWe're happy to see you back! You can now continue using your account.\n\nBest regards,\nYour Company Team");
+
+            return Result<LoginResponseDto>.SuccessResponse(response, "Login successful.");
         }
+
+        public async Task<Result<string>> SendConfirmationLink(string email)
+        {
+            var user = await _userManager.FindByEmailAsync(email);
+            if (user == null)
+                return Result<string>.FailureResponse("User not found");
+
+            if (user.EmailConfirmed)
+                return Result<string>.FailureResponse("Email already confirmed");
+
+            var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
+
+            var encodedToken = Uri.EscapeDataString(token);
+
+            var confirmUrl =
+                $"https://frontend.com/confirm-email" +
+                $"?userId={user.Id}&token={encodedToken}";
+
+            _jobqueue.Enqueue<IMailerService>(job =>
+                job.SendEmailAsync(
+                    user.Email!,
+                    "Confirm your email",
+                    $"Hello {user.FirstName},\n\n" +
+                    $"Please confirm your email by clicking the link below:\n\n" +
+                    $"{confirmUrl}\n\n" +
+                    $"If you did not request this, please ignore this email."
+                ),
+                "email"
+            );
+
+            _jobqueue.Enqueue<IAuditService>(job =>
+                job.LogAsync(
+                    user.Id,
+                    user.CompanyId!.Value,
+                    AuditAction.Create,
+                    "Email confirmation link sent"
+                ),
+                "audit"
+            );
+
+            return Result<string>.SuccessResponse("Confirmation email sent");
+        }
+
+        public async Task<Result<string>> ConfirmEmail(Guid userId , string token)
+        {
+            var user = await _userManager.FindByIdAsync(userId.ToString());
+            if (user == null)
+                return Result<string>.FailureResponse("User not found");
+
+            if (user.EmailConfirmed)
+                return Result<string>.FailureResponse("Email already confirmed");
+
+            var decodedToken = Uri.UnescapeDataString(token);
+
+            var result = await _userManager.ConfirmEmailAsync(user, decodedToken);
+
+            if (!result.Succeeded)
+                return Result<string>.FailureResponse(
+                    string.Join("; ", result.Errors.Select(e => e.Description))
+                );
+
+            _jobqueue.Enqueue<IAuditService>(job =>
+                job.LogAsync(
+                    user.Id,
+                    user.CompanyId!.Value,
+                    AuditAction.Update,
+                    "Email confirmed"
+                ),
+                "audit"
+            );
+
+            _jobqueue.Enqueue<IMailerService>(job =>
+                job.SendEmailAsync(
+                    user.Email!,
+                    "Email confirmed",
+                    $"Hello {user.FirstName},\n\n" +
+                    $"Your email has been successfully confirmed.\n\n" +
+                    $"You can now access your dashboard."
+                ),
+                "email"
+            );
+
+            return Result<string>.SuccessResponse("Email confirmed successfully");
+        }
+
         public async Task<Result<string>> UpdateUser(Guid userId, UpdateUserDto dto)
         {
             try
             {
                 var user = await _userManager.FindByIdAsync(userId.ToString());
-                if (user == null)
-                    return Result<string>.FailureResponse("User not found");
+                if (user == null) return Result<string>.FailureResponse("User not found");
 
                 user.Email = dto.Email ?? user.Email;
                 user.UserName = dto.UserName ?? user.UserName;
@@ -172,10 +253,10 @@ namespace IMS.Application.Services
                 if (!result.Succeeded)
                     return Result<string>.FailureResponse(string.Join("; ", result.Errors.Select(e => e.Description)));
 
-                await _audit.LogAsync(userId, Guid.Empty, AuditAction.Update, $"User {user.Email} updated.");
-                _logger.LogInformation("User {UserId} updated", userId);
+                _jobqueue.EnqueueAudit(userId, user.CompanyId!.Value, AuditAction.Update, $"User {user.Email} updated.");
 
                 _cache.Remove($"UserById{userId}");
+                _logger.LogInformation("User {UserId} updated", userId);
 
                 return Result<string>.SuccessResponse("User updated successfully");
             }
@@ -191,43 +272,25 @@ namespace IMS.Application.Services
             try
             {
                 var user = await _userManager.FindByIdAsync(userId.ToString());
-
-                if (user == null)
-                    return Result<string>.FailureResponse("User not found");
+                if (user == null) return Result<string>.FailureResponse("User not found");
 
                 user.CompanyId = null;
-                user.IsDeleted = true;
-                user.DeletedAt = DateTime.UtcNow;
-
+                user.MarkAsDeleted();
                 user.LockoutEnabled = true;
                 user.LockoutEnd = DateTimeOffset.MaxValue;
+                user.Tokenversion += 1;
 
-                //user.TokenVersion += 1;
+                var result = await _userManager.UpdateAsync(user);
+                if (!result.Succeeded)
+                    return Result<string>.FailureResponse(string.Join("; ", result.Errors.Select(e => e.Description)));
 
-                var updateResult = await _userManager.UpdateAsync(user);
-                if (!updateResult.Succeeded)
-                    return Result<string>.FailureResponse(
-                        string.Join("; ", updateResult.Errors.Select(e => e.Description))
-                    );
-
-                _jobqueue.Enqueue<IAuditService>(job => job.LogAsync(
-                    user.Id,
-                    companyId,
-                    AuditAction.Delete,
-                    $"User {user.Email} removed from company"
-                ));
-
-                _jobqueue.Enqueue<IMailerService>(job => job.SendEmailAsync(
-                    user.Email!,
-                    "Access Revoked",
-                    "You have been removed from your company and can no longer log in."
-                ));
+                _jobqueue.EnqueueAudit(user.Id, companyId, AuditAction.Delete, $"User {user.Email} removed from company");
+                _jobqueue.EnqueueEmail(user.Email!, "Access Revoked", "You have been removed from your company and can no longer log in.");
 
                 _cache.Remove($"UserById{userId}");
                 _cache.Remove($"company:{companyId}:users");
 
                 _logger.LogInformation("User {UserId} removed from company {CompanyId}", userId, companyId);
-
                 return Result<string>.SuccessResponse("User removed from company successfully");
             }
             catch (Exception ex)
@@ -236,38 +299,42 @@ namespace IMS.Application.Services
                 return Result<string>.FailureResponse("Failed to remove user from company");
             }
         }
+
+        public async Task<Result<string>> Logout(Guid userId)
+        {
+            var user = await _userManager.FindByIdAsync(userId.ToString());
+            if (user == null) return Result<string>.FailureResponse("User not found");
+
+            user.Tokenversion += 1;
+            await _userManager.UpdateAsync(user);
+
+            _jobqueue.EnqueueAudit(user.Id, user.CompanyId!.Value, AuditAction.Logout, "User logged out");
+            _logger.LogInformation("User {UserId} logged out", userId);
+
+            return Result<string>.SuccessResponse("Logged out successfully");
+        }
+
         public async Task<Result<UserDto>> GetUserById(Guid userId)
         {
             var cacheKey = $"UserById{userId}";
             try
             {
-                if (!_cache.TryGetValue(cacheKey,out UserDto cachedUser))
+                if (!_cache.TryGetValue(cacheKey, out UserDto cachedUser))
                 {
                     var user = await _userManager.FindByIdAsync(userId.ToString());
-                    if (user == null)
-                        return Result<UserDto>.FailureResponse("User not found");
+                    if (user == null) return Result<UserDto>.FailureResponse("User not found");
 
-                    var dto = new UserDto
-                    {
-                        Id = user.Id,
-                        UserName = user.UserName!,
-                        Email = user.Email!
-                    };
-
-                    var options = new MemoryCacheEntryOptions
+                    var dto = new UserDto { Id = user.Id, UserName = user.UserName!, Email = user.Email! };
+                    _cache.Set(cacheKey, dto, new MemoryCacheEntryOptions
                     {
                         AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10),
-                        SlidingExpiration = TimeSpan.FromMinutes(2),
-                    };
-                    _cache.Set(cacheKey, dto, options);
+                        SlidingExpiration = TimeSpan.FromMinutes(2)
+                    });
 
                     return Result<UserDto>.SuccessResponse(dto);
                 }
-                else
-                {
-                    return Result<UserDto>.SuccessResponse(cachedUser, "User fetched successfully from Cache system");
-                }
 
+                return Result<UserDto>.SuccessResponse(cachedUser, "User fetched successfully from cache");
             }
             catch (Exception ex)
             {
@@ -275,55 +342,35 @@ namespace IMS.Application.Services
                 return Result<UserDto>.FailureResponse("Failed to fetch user");
             }
         }
+
         public async Task<Result<List<UserDto>>> GetUsersByCompany(Guid companyId)
         {
             if (companyId == Guid.Empty)
-            { 
-                _logger.LogInformation("Company does not exist");
-                return Result<List<UserDto>>.FailureResponse("CompanyId can not be null");
-            }
+                return Result<List<UserDto>>.FailureResponse("CompanyId cannot be null");
 
             var company = await _context.Companies.FindAsync(companyId);
-
-            if (company == null)
-            {
-                _logger.LogInformation("Company does not exist");
-                return Result<List<UserDto>>.FailureResponse("Company does not exist");
-            }
+            if (company == null) return Result<List<UserDto>>.FailureResponse("Company does not exist");
 
             var cacheKey = $"company:{companyId}:users";
-
             try
             {
-                if (!_cache.TryGetValue<List<UserDto>>(cacheKey, out var cachedCompanyUsers))
+                if (!_cache.TryGetValue(cacheKey, out List<UserDto> cachedUsers))
                 {
-                    _logger.LogInformation("Data not found in the cache system, hitting the databse...");
-
                     var users = await _userManager.Users
-                   .Where(u => u.CompanyId == companyId)
-                   .Select(u => new UserDto
-                   {
-                       Id = u.Id,
-                       UserName = u.UserName!,
-                       Email = u.Email!
-                   })
-                   .ToListAsync();
+                        .Where(u => u.CompanyId == companyId)
+                        .Select(u => new UserDto { Id = u.Id, UserName = u.UserName!, Email = u.Email! })
+                        .ToListAsync();
 
-                    var options = new MemoryCacheEntryOptions
+                    _cache.Set(cacheKey, users, new MemoryCacheEntryOptions
                     {
                         AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10),
-                        SlidingExpiration = TimeSpan.FromMinutes(2),
-                    };
-                    _cache.Set(cacheKey,users,options);
+                        SlidingExpiration = TimeSpan.FromMinutes(2)
+                    });
 
-                    _logger.LogInformation("Data successfully retrieved from the database...");
                     return Result<List<UserDto>>.SuccessResponse(users);
                 }
-                else
-                {
-                    _logger.LogInformation("Successfully retrieved data from the Cached system");
-                    return Result<List<UserDto>>.SuccessResponse(cachedCompanyUsers, "Data successfully retrieved from the Cached system");
-                }
+
+                return Result<List<UserDto>>.SuccessResponse(cachedUsers, "Data retrieved from cache");
             }
             catch (Exception ex)
             {
@@ -331,87 +378,72 @@ namespace IMS.Application.Services
                 return Result<List<UserDto>>.FailureResponse("Failed to fetch users");
             }
         }
+
         public async Task<Result<string>> AddRoleToUser(Guid userId, string role)
         {
-            if (userId == Guid.Empty)
-            {
-                _logger.LogInformation("UserId can not be null...");
-                return Result<string>.FailureResponse("UserId can not be null");
-            }
+            if (userId == Guid.Empty) return Result<string>.FailureResponse("UserId cannot be null");
+            if (string.IsNullOrEmpty(role)) return Result<string>.FailureResponse("Role cannot be null");
 
-            if (string.IsNullOrEmpty(role))
-            {
-                _logger.LogInformation("URole can not be null");
-                return Result<string>.FailureResponse("Please, provide a role...");
-            }
+            var user = await _userManager.FindByIdAsync(userId.ToString());
+            if (user == null) return Result<string>.FailureResponse("User not found");
 
-            try
-            {
-                var user = await _userManager.FindByIdAsync(userId.ToString());
-                if (user == null)
-                    return Result<string>.FailureResponse("User not found");
+            if (!await _roleManager.RoleExistsAsync(role))
+                await _roleManager.CreateAsync(new IdentityRole<Guid>(role));
 
-                if (!await _roleManager.RoleExistsAsync(role))
-                    await _roleManager.CreateAsync(new IdentityRole<Guid>(role));
+            var result = await _userManager.AddToRoleAsync(user, role);
+            if (!result.Succeeded)
+                return Result<string>.FailureResponse(string.Join("; ", result.Errors.Select(e => e.Description)));
 
-                var result = await _userManager.AddToRoleAsync(user, role);
-                if (!result.Succeeded)
-                    return Result<string>.FailureResponse(string.Join("; ", result.Errors.Select(e => e.Description)));
+            _jobqueue.EnqueueAudit(userId, user.CompanyId!.Value, AuditAction.Update, $"Role {role} added to user {user.Email}.");
+            _jobqueue.EnqueueEmail(user.Email!, "Role Updated!", $"Hello,\n\nYour role has been updated to: {role}.");
 
-                await _audit.LogAsync(userId, Guid.Empty, AuditAction.Update, $"Role {role} added to user {user.Email}.");
-                _logger.LogInformation("Role {Role} added to user {UserId}", role, userId);
+            _cache.Remove($"UserById{userId}");
+            _logger.LogInformation("Role {Role} added to user {UserId}", role, userId);
 
-                await _mailer.SendEmailAsync(user.Email!, "Role Updated!", $"Hello,\n\nYour role has been updated to: {role}.");
-
-                _cache.Remove($"UserById{userId}");
-
-                return Result<string>.SuccessResponse("Role added successfully");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error adding role to user {UserId}", userId);
-                return Result<string>.FailureResponse("Failed to add role");
-            }
+            return Result<string>.SuccessResponse("Role added successfully");
         }
+
         public async Task<Result<string>> UpdateProfileImage(Guid userId, IFormFile file)
         {
-            if (userId == Guid.Empty)
-            {
-                _logger.LogInformation("PUseId can not be null");
-                return Result<string>.FailureResponse("UserId can not be null");
-            }
+            if (userId == Guid.Empty) return Result<string>.FailureResponse("UserId cannot be null");
+            if (file == null || file.Length == 0) return Result<string>.FailureResponse("Invalid file");
 
-            if (file == null || file.Length == 0 )
-            {
-                _logger.LogInformation("File can not be null...");
-                return Result<string>.FailureResponse("Invalid file format...");
-            }
+            var user = await _userManager.FindByIdAsync(userId.ToString());
+            if (user == null) return Result<string>.FailureResponse("User not found");
 
-            try
-            {
-                var user = await _userManager.FindByIdAsync(userId.ToString());
-                if (user == null)
-                    return Result<string>.FailureResponse("User not found");
+            var uploadResult = await _imageService.UploadImageAsync(file, "user", userId);
+            user.ImageUrl = uploadResult;
 
-                var UploadResult = await _imageService.UploadImageAsync(file, "user", userId);
-                user.ImageUrl = UploadResult;
+            var result = await _userManager.UpdateAsync(user);
+            if (!result.Succeeded)
+                return Result<string>.FailureResponse(string.Join("; ", result.Errors.Select(e => e.Description)));
 
-                var result = await _userManager.UpdateAsync(user);
-                if (!result.Succeeded)
-                    return Result<string>.FailureResponse(string.Join("; ", result.Errors.Select(e => e.Description)));
+            _jobqueue.EnqueueAudit(userId, user.CompanyId!.Value, AuditAction.Update, $"Profile image updated for user {user.Email}.");
 
-                await _audit.LogAsync(userId, Guid.Empty, AuditAction.Update, $"Profile image updated for user {user.Email}.");
-                _logger.LogInformation("Profile image updated for user {UserId}", userId);
+            _cache.Remove($"UserById{userId}");
+            _logger.LogInformation("Profile image updated for user {UserId}", userId);
 
-                _cache.Remove($"UserById{userId}");
-
-                return Result<string>.SuccessResponse("Profile image updated successfully");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error updating profile image for user {UserId}", userId);
-                return Result<string>.FailureResponse("Failed to update profile image");
-            }
+            return Result<string>.SuccessResponse("Profile image updated successfully");
         }
+
+        public async Task<Result<string>> UpdatePassword(Guid userId, string currentPassword, string newPassword)
+        {
+            var user = await _userManager.FindByIdAsync(userId.ToString());
+            if (user == null) return Result<string>.FailureResponse("User not found");
+
+            var result = await _userManager.ChangePasswordAsync(user, currentPassword, newPassword);
+            if (!result.Succeeded)
+                return Result<string>.FailureResponse(string.Join("; ", result.Errors.Select(e => e.Description)));
+
+            _jobqueue.EnqueueAudit(user.Id, user.CompanyId!.Value, AuditAction.Update, "Password updated successfully");
+            _jobqueue.EnqueueEmail(user.Email!, "Password Updated", "Hello,\n\nYour account password has been successfully updated.");
+
+            _cache.Remove($"UserById{userId}");
+            _logger.LogInformation("Password updated for user {UserId}", userId);
+
+            return Result<string>.SuccessResponse("Password updated successfully");
+        }
+
     }
 }
+#endregion

@@ -5,10 +5,12 @@ using Hangfire;
 using IMS.API.ModelFilter;
 using IMS.Application.Extensions;
 using IMS.Application.Interfaces;
+using IMS.Domain.Entities;
 using IMS.Infrastructure.DBSeeder;
 using IMS.Infrastructure.Extensions;
 using IMS.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -93,12 +95,44 @@ builder.Services
             ValidateAudience = true,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
+
             ValidIssuer = jwtIssuer,
             ValidAudience = jwtAudience,
             IssuerSigningKey = new SymmetricSecurityKey(keyBytes),
+
             RoleClaimType = ClaimTypes.Role
         };
+
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async context =>
+            {
+                var userId = context.Principal?
+                    .FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+                var tokenVersionClaim = context.Principal?
+                    .FindFirst("tokenVersion")?.Value;
+
+                if (string.IsNullOrEmpty(userId) || string.IsNullOrEmpty(tokenVersionClaim))
+                {
+                    context.Fail("Invalid token");
+                    return;
+                }
+
+                var userManager = context.HttpContext
+                    .RequestServices
+                    .GetRequiredService<UserManager<AppUser>>();
+
+                var user = await userManager.FindByIdAsync(userId);
+
+                if (user == null || user.Tokenversion.ToString() != tokenVersionClaim)
+                {
+                    context.Fail("Token revoked");
+                }
+            }
+        };
     });
+
 
 
 builder.Services.AddMemoryCache();
