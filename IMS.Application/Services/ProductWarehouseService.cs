@@ -1,4 +1,5 @@
-﻿using IMS.Application.Interfaces;
+﻿using IMS.Application.Helpers;
+using IMS.Application.Interfaces;
 using IMS.Application.Interfaces.IAudit;
 using IMS.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -12,13 +13,16 @@ namespace IMS.Application.Services
         private readonly IAppDbContext _context;
         private readonly IAuditService _audit;
         private readonly ICurrentUserService _currentUserService;
+        private readonly IJobQueue _jobqueue;
 
         public ProductWarehouseService(
+            IJobQueue jobqueue,
             ILogger<ProductWarehouseService> logger,
             IAppDbContext context,
             IAuditService audit,
             ICurrentUserService currentUserService)
         {
+            _jobqueue = jobqueue;
             _logger = logger;
             _context = context;
             _audit = audit;
@@ -57,7 +61,7 @@ namespace IMS.Application.Services
                               $"{(updateType == ProductUpdateInWarehouseType.IncreaseQuantity ? "added" : "removed")} " +
                               $"{quantityChanged} units of product {productId} in warehouse {warehouseId}";
 
-            await _audit.LogAsync(userId, productWarehouse.Product!.CompanyId, AuditAction.Update, description);
+            _jobqueue.EnqueueAudit(userId, productWarehouse.Product!.CompanyId, AuditAction.Update, description);
 
             _logger.LogInformation("Product {ProductId} in warehouse {WarehouseId} updated successfully", productId, warehouseId);
         }
@@ -96,7 +100,7 @@ namespace IMS.Application.Services
             var description = $"{_currentUserService.GetCurrentUserId()} transferred {quantity} units of product {productId} " +
                               $"from warehouse {fromWarehouseId} to warehouse {toWarehouseId}";
 
-            await _audit.LogAsync(userId, product!.CompanyId, AuditAction.Transfer, description);
+            _jobqueue.EnqueueAudit(userId, product!.CompanyId, AuditAction.Transfer, description);
         }
     }
 }
