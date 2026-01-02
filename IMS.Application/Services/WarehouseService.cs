@@ -1,6 +1,7 @@
 ﻿using IMS.Application.ApiResponse;
 using IMS.Application.DTO;
 using IMS.Application.DTO.Warehouse;
+using IMS.Application.Helpers;
 using IMS.Application.Interfaces;
 using IMS.Application.Interfaces.IAudit;
 using IMS.Domain.Entities;
@@ -90,13 +91,12 @@ namespace IMS.Application.Services
             {
                 var userId = _currentUserService.GetCurrentUserId();
 
-                _jobqueue.Enqueue<IAuditService>(
-                       job => job.LogAsync(
+                _jobqueue.EnqueueAudit(
                            userId,
                            dto.CompanyId,
                            AuditAction.Create,
                            $"Warehouse '{dto.Name}' registered with admin '{dto.CompanyId}'."
-                       ));
+                       );
             }
             catch { }
 
@@ -122,7 +122,7 @@ namespace IMS.Application.Services
                 var companyId = await GetCurrentUserCompanyIdAsync();
 
                 if (companyId.HasValue)
-                    await _audit.LogAsync(userId, companyId.Value, AuditAction.Delete,
+                    _jobqueue.EnqueueAudit(userId, companyId.Value, AuditAction.Delete,
                         $"Warehouse '{warehouse.Name}' marked as deleted");
 
                 _cache.Remove($"warehouse_{warehouse.Id}");
@@ -163,7 +163,7 @@ namespace IMS.Application.Services
             var userId = _currentUserService.GetCurrentUserId();
             var companyId = await GetCurrentUserCompanyIdAsync();
             if (companyId.HasValue)
-                await _audit.LogAsync(userId, companyId.Value, AuditAction.Read,
+                _jobqueue.EnqueueAudit(userId, companyId.Value, AuditAction.Read,
                     $"Fetched warehouse with ID {warehouseId}");
 
             return Result<WarehouseDto>.SuccessResponse(warehouse);
@@ -196,7 +196,7 @@ namespace IMS.Application.Services
                 return Result<List<WarehouseDto>>.FailureResponse("No warehouses found");
 
             var userId = _currentUserService.GetCurrentUserId();
-            await _audit.LogAsync(userId, companyId, AuditAction.Read,
+            _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read,
                 $"Fetched warehouses for company ID {companyId}, page {pageNumber}");
 
             return Result<List<WarehouseDto>>.SuccessResponse(warehouses);
@@ -230,7 +230,7 @@ namespace IMS.Application.Services
             var userId = _currentUserService.GetCurrentUserId();
             var companyId = await GetCurrentUserCompanyIdAsync();
             if (companyId.HasValue)
-                await _audit.LogAsync(userId, companyId.Value, AuditAction.Read,
+                _jobqueue.EnqueueAudit(userId, companyId.Value, AuditAction.Read,
                     $"Fetched warehouses containing product ID {productId}");
 
             return Result<List<WarehouseDto>>.SuccessResponse(warehouses);
@@ -251,7 +251,7 @@ namespace IMS.Application.Services
                 var companyId = await GetCurrentUserCompanyIdAsync();
 
                 if (companyId.HasValue)
-                    await _audit.LogAsync(userId, companyId.Value, AuditAction.Update,
+                    _jobqueue.EnqueueAudit(userId, companyId.Value, AuditAction.Update,
                         $"Warehouse '{warehouse.Name}' marked as active");
 
                 _cache.Remove($"warehouse_{warehouse.Id}");
@@ -280,7 +280,7 @@ namespace IMS.Application.Services
                 var companyId = await GetCurrentUserCompanyIdAsync();
 
                 if (companyId.HasValue)
-                    await _audit.LogAsync(userId, companyId.Value, AuditAction.Update,
+                    _jobqueue.EnqueueAudit(userId, companyId.Value, AuditAction.Update,
                         $"Warehouse '{warehouse.Name}' marked as inactive");
 
                 _cache.Remove($"warehouse_{warehouse.Id}");
@@ -314,7 +314,7 @@ namespace IMS.Application.Services
                 var companyId = await GetCurrentUserCompanyIdAsync();
 
                 if (companyId.HasValue)
-                    await _audit.LogAsync(userId, companyId.Value, AuditAction.Update,
+                    _jobqueue.EnqueueAudit(userId, companyId.Value, AuditAction.Update,
                         $"Warehouse '{warehouse.Name}' updated successfully");
 
                 _cache.Remove($"warehouse_{warehouse.Id}");
