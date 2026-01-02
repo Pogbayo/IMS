@@ -1,5 +1,6 @@
 ﻿using IMS.Application.ApiResponse;
 using IMS.Application.DTO.StockTransaction;
+using IMS.Application.Helpers;
 using IMS.Application.Interfaces;
 using IMS.Application.Interfaces.IAudit;
 using IMS.Domain.Entities;
@@ -17,9 +18,11 @@ namespace IMS.Application.Services
         private readonly IProductService _productService;
         private readonly IAuditService _auditservice;
         private readonly ICustomMemoryCache _cache;
+        private readonly IJobQueue _jobqueue;
 
         public StockTransactionService(
             IAuditService auditService,
+            IJobQueue jobqueue,
             Func<IProductService> productServiceFactory,
             IAppDbContext context,
             ILogger<StockTransactionService> logger,
@@ -28,6 +31,7 @@ namespace IMS.Application.Services
         {
             _productService = productServiceFactory();
             _auditservice = auditService;
+            _jobqueue = jobqueue;
             _context = context;
             _logger = logger;
             _currentUserService = currentUserService;
@@ -125,7 +129,7 @@ namespace IMS.Application.Services
                     return null; 
                 }
 
-                await _auditservice.LogAsync(userId, companyId, AuditAction.Read,
+               _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read,
                     $"User: {userId} fetched Inventory Movements in the Company");
 
                 return transactionDtos;
@@ -238,7 +242,7 @@ namespace IMS.Application.Services
                 if (dbResult > 0)
                 {
                     _logger.LogInformation("Logs saved successfully");
-                    await _auditservice.LogAsync(userId, dto.CompanyId, AuditAction.Create,
+                    _jobqueue.EnqueueAudit(userId, dto.CompanyId, AuditAction.Create,
                         $"{userId} created a log for the following transaction");
 
                     // Invalidtae cache for this company
