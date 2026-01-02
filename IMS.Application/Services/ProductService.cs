@@ -27,6 +27,7 @@ namespace IMS.Application.Services
         private readonly IImageService _imageService;
         private readonly IStockTransactionService _stockTransaction;
         private readonly ICustomMemoryCache _cache;
+
         public ProductService(IJobQueue jobqueue,ICustomMemoryCache cache, Func<IStockTransactionService> stockTransactionFactory, IImageService imageService,UserManager<AppUser> userManager,ILogger<ProductService> logger, IAppDbContext context, IAuditService audit, ICurrentUserService currentUserService)
         {
             _jobqueue = jobqueue;

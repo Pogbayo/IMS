@@ -90,7 +90,6 @@ namespace IMS.Application.Services
                 _memoryCache.Set(cacheKey, cachedAudits, options);
             }
 
-            // Always return success with the data (empty or not) after cache/DB logic
             return Result<List<AuditDto>>.SuccessResponse(cachedAudits ?? new List<AuditDto>(),
                 cachedAudits?.Count > 0 ? "Audits retrieved successfully..." : "No audits found for the specified criteria.");
         }

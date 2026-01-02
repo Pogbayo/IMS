@@ -1,6 +1,7 @@
 ﻿using IMS.Application.ApiResponse;
 using IMS.Application.DTO.Company;
 using IMS.Application.DTO.Product;
+using IMS.Application.Helpers;
 using IMS.Application.Interfaces;
 using IMS.Application.Interfaces.IAudit;
 using IMS.Domain.Entities;
@@ -77,7 +78,7 @@ namespace IMS.Application.Services
 
                 await _phonevalidator.Validate(dto.AdminPhoneNumber!);
 
-                var appUser = new AppUser
+                var Admin = new AppUser
                 {
                     FirstName = dto.FirstName,
                     LastName = dto.LastName,
@@ -88,7 +89,7 @@ namespace IMS.Application.Services
                     PhoneNumber = dto.AdminPhoneNumber!
                 };
 
-                var identityResult = await _userManager.CreateAsync(appUser, dto.Password);
+                var identityResult = await _userManager.CreateAsync(Admin, dto.Password);
 
                 if (!identityResult.Succeeded)
                 {
@@ -100,8 +101,8 @@ namespace IMS.Application.Services
                     );
                 }
 
-                appUser.EmailConfirmed = true;
-                appUser.PhoneNumberConfirmed = true;
+                //appUser.EmailConfirmed = true;
+                //appUser.PhoneNumberConfirmed = true;
 
                 if (!await _roleManager.RoleExistsAsync("Admin"))
                 {
@@ -110,56 +111,37 @@ namespace IMS.Application.Services
                         throw new InvalidOperationException("Admin role creation failed");
                 }
 
-                var roleAssignResult = await _userManager.AddToRoleAsync(appUser, "Admin");
+                var roleAssignResult = await _userManager.AddToRoleAsync(Admin, "Admin");
                 if (!roleAssignResult.Succeeded)
                     throw new InvalidOperationException("Failed to assign Admin role");
 
-                company.CreatedById = appUser.Id;
+                company.CreatedById = Admin.Id;
                 await _context.SaveChangesAsync();
 
                 await transaction.CommitAsync();
 
-                    try
-                    {
-                    //_jobqueue.Enqueue<IAuditService>(
-                    //    job => job.LogAsync(
-                    //        appUser.Id,
-                    //        company.Id,
-                    //        AuditAction.Create,
-                    //        $"Company '{company.Name}' registered with admin '{appUser.Email}'."
-                    //    ));
+                try
+                {
 
-                        _jobqueue.Enqueue<IAuditService>(
-                            job => job.LogAsync(
-                                appUser.Id,
-                                company.Id,
-                                AuditAction.Create, $"Company '{company.Name}' registered with admin '{appUser.Email}'."),
-                            "audit"
-                        );
+                    _jobqueue.EnqueueAudit(Admin.Id, company.Id, AuditAction.Create, $"Company '{company.Name}' registered with admin '{Admin.Email}'.");
+                    _jobqueue.EnqueueEmail(Admin.Email, "Welcome!", $"Hi {Admin.FirstName}, InvManager welcomes you on board.");
 
-                    _jobqueue.Enqueue<IMailerService>(
-                        job => job.SendEmailAsync(
-                            appUser.Email!,
-                            "Welcome!",
-                            $"Hi {appUser.FirstName}, InvManager welcomes you on board."
-                       ),
-                        "email");
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Post-registration tasks failed");
-                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Post-registration tasks failed");
+                }
 
                 return Result<CreatedCompanyDto>.SuccessResponse(new CreatedCompanyDto
                 {
-                    AdminId = appUser.Id,
+                    AdminId = Admin.Id,
                     CompanyId = company.Id,
                     Name = company.Name!,
                     FirstName = company.CreatedBy.FirstName,
                     CreatedAt = company.CreatedAt,
                     CompanyEmail = company.Email,
                     HeadOffice = company.HeadOffice,
-                    AdminEmail = appUser.Email,
+                    AdminEmail = Admin.Email,
                     UpdatedAt = company.UpdatedAt,
                     TotalInventoryValue = 0,
                     TotalPurchases = 0,
@@ -203,7 +185,7 @@ namespace IMS.Application.Services
                 company.MarkAsDeleted();
                 await _context.SaveChangesAsync();
 
-                await _audit.LogAsync(currentUserId, companyId, AuditAction.Delete, "Company deleted successfully");
+                _jobqueue.EnqueueAudit(currentUserId, companyId, AuditAction.Delete, "Company deleted successfully");
 
                 // Invalidate cache for this company
                 _cache.Remove($"Company_{companyId}");
@@ -277,15 +259,16 @@ namespace IMS.Application.Services
                     TotalInventoryValue = todayStat != null ? todayStat.TotalInventoryValue : 0m,
 
                     TopProductsBySales = todayStat != null
-                        ? JsonSerializer.Deserialize<List<TopProductDto>>(todayStat.TopProductsBySalesJson) ?? new List<TopProductDto>()
-                        : new List<TopProductDto>(),
+                        ? JsonSerializer.Deserialize<List<TopProductDto>>(todayStat.TopProductsBySalesJson) ?? new ()
+                        : new (),
 
                     LowOnStockProducts = todayStat != null
-                        ? JsonSerializer.Deserialize<List<LowOnStockProduct>>(todayStat.LowOnStockProductsJson) ?? new List<LowOnStockProduct>()
-                        : new List<LowOnStockProduct>()
+                        ? JsonSerializer.Deserialize<List<LowOnStockProduct>>(todayStat.LowOnStockProductsJson) ?? new ()
+                        : new ()
                 };
 
-                await _audit.LogAsync(userId, companyId, AuditAction.Read, $"User: {userId} viewed company dashboard for: {company.Name}");
+                _jobqueue.EnqueueAudit(userId,companyId,AuditAction.Read,$"Viewed dashboard for company '{company.Name}'");
+
                 return Result<CompanyDto>.SuccessResponse(companyDto);
             });
 
@@ -310,9 +293,8 @@ namespace IMS.Application.Services
 
             await _context.UpdateChangesAsync(company);
 
-            await _audit.LogAsync(currentUserId, companyId, AuditAction.Update, $"Company: {companyId} updated by {currentUserId}");
+            _jobqueue.EnqueueAudit(currentUserId, companyId, AuditAction.Update, $"Company: {companyId} updated by {currentUserId}");
 
-            // Invalidate cache for this company
             _cache.Remove($"Company_{companyId}");
 
             return Result<string>.SuccessResponse("Company updated Successfully");

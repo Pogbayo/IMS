@@ -4,6 +4,8 @@ using IMS.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using IMS.Application.ApiResponse;
+using IMS.Application.Helpers;
+using IMS.Domain.Enums;
 
 namespace IMS.Application.Services
 {
@@ -11,12 +13,18 @@ namespace IMS.Application.Services
     {
         private readonly IAppDbContext _context;
         private readonly ILogger<CategoryService> _logger;
-
-        public CategoryService(IAppDbContext context, ILogger<CategoryService> logger)
+        private readonly IJobQueue _jobqueue;
+        private readonly ICurrentUserService _currentUser;
+        private readonly IUserService _userService;
+        public CategoryService(IAppDbContext context, ILogger<CategoryService> logger, IJobQueue jobqueue, ICurrentUserService currentUserService, IUserService userService)
         {
+            _currentUser = currentUserService;
+            _userService = userService;
             _context = context;
             _logger = logger;
+            _jobqueue = jobqueue;
         }
+       
 
         public async Task<Result<Guid>> CreateCategory(CreateCategoryDto dto)
         {
@@ -27,6 +35,7 @@ namespace IMS.Application.Services
                 if (dto == null || string.IsNullOrWhiteSpace(dto.Name))
                     return Result<Guid>.FailureResponse("Category name is required");
 
+                var userDetails = await _userService.GetUserById(_currentUser.GetCurrentUserId());
                 var category = new Category
                 {
                     Name = dto.Name.Trim()
@@ -40,6 +49,8 @@ namespace IMS.Application.Services
                     category.Name,
                     category.Id
                 );
+
+                _jobqueue.EnqueueAudit(userDetails.Data!.Id, userDetails.Data.CompanyId ?? Guid.Empty, AuditAction.Create, $"{userDetails.Data.FirstName} created {category.Name} category");
 
                 return Result<Guid>.SuccessResponse(category.Id, "Category created successfully");
             }

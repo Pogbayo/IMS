@@ -1,4 +1,5 @@
-﻿using IMS.Application.Interfaces;
+﻿using IMS.Application.Helpers;
+using IMS.Application.Interfaces;
 using IMS.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
@@ -9,7 +10,7 @@ namespace IMS.Application.Services
     {
         private readonly IAppDbContext _context;
         private readonly ICompanyCalculations _companyCalculations;
-        public CompanyDailyStatsJob(IAppDbContext context, ICompanyCalculations companyCalculations)
+        public CompanyDailyStatsJob(IAppDbContext context,ICompanyCalculations companyCalculations)
         {
             _context = context;
             _companyCalculations = companyCalculations;
@@ -55,8 +56,11 @@ namespace IMS.Application.Services
                     TopProductsBySalesJson = topProductsJson,
                     LowOnStockProductsJson = lowStockJson
                 };
+
                 _context.CompanyDailyStats.Add(stat);
+
                 await _context.SaveChangesAsync();
+
             }
         }
     }
