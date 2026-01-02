@@ -9,7 +9,6 @@ namespace IMS.API.Controllers
     [ApiController]
     [Route("api/[controller]")]
     [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
-
     public class CompanyController : BaseController
     {
         private readonly ICompanyService _companyService;

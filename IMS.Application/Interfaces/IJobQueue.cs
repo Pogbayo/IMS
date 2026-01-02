@@ -4,7 +4,7 @@ namespace IMS.Application.Interfaces
 {
     public interface IJobQueue
     {
-        void Enqueue(Expression<Action> job);
-        void Enqueue<T>(Expression<Action<T>> job);
+        void Enqueue(Expression<Action> job, string queue = "default");
+        void Enqueue<T>(Expression<Action<T>> job, string queue = "default");
     }
 }

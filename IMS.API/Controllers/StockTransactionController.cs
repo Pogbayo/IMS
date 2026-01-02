@@ -2,6 +2,7 @@
 using IMS.Application.DTO.StockTransaction;
 using IMS.Application.Interfaces;
 using IMS.Domain.Enums;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -9,6 +10,7 @@ namespace IMS.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
     public class StockTransactionController : BaseController
     {
         private readonly IStockTransactionService _stockTransactionService;
@@ -18,7 +20,7 @@ namespace IMS.API.Controllers
             _stockTransactionService = stockTransactionService;
         }
 
-        //[Authorize(Policy = "Everyone")]
+        [Authorize(Policy = "Everyone")]
         [HttpGet("get-transactions")]
         public async Task<IActionResult> GetStockTransactions(
             [FromQuery] Guid companyId,
@@ -47,7 +49,7 @@ namespace IMS.API.Controllers
                 : ErrorResponse(result.Error ?? "Failed to fetch stock transactions", result.Message);
         }
 
-        //[Authorize(Policy = "AdminOnly")]
+        [Authorize(Policy = "AdminOnly")]
         [HttpPost("log-transaction")]
         public async Task<IActionResult> LogTransaction([FromBody] CreateStockTransactionDto dto)
         {

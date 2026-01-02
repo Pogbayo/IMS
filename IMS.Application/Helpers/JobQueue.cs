@@ -1,7 +1,7 @@
 ﻿using Hangfire;
+using Hangfire.States;
 using IMS.Application.Interfaces;
 using System.Linq.Expressions;
-
 
 namespace IMS.Application.Helpers
 {
@@ -14,15 +14,14 @@ namespace IMS.Application.Helpers
             _client = client;
         }
 
-        public void Enqueue(Expression<Action> job)
+        public void Enqueue(Expression<Action> job, string queue = "default")
         {
-            _client.Enqueue(job);
+            _client.Enqueue(() => job.Compile().Invoke());
         }
 
-        public void Enqueue<T>(Expression<Action<T>> job)
+        public void Enqueue<T>(Expression<Action<T>> job, string queue = "default")
         {
-            _client.Enqueue(job);
+            _client.Create(job, new EnqueuedState(queue));
         }
     }
-
 }

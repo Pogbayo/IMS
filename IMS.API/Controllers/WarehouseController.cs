@@ -1,5 +1,6 @@
 ﻿using IMS.Application.DTO.Warehouse;
 using IMS.Application.Interfaces;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -7,6 +8,7 @@ namespace IMS.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
     public class WarehouseController : BaseController
     {
         private readonly IWarehouseService _warehouseService;
@@ -16,7 +18,7 @@ namespace IMS.API.Controllers
             _warehouseService = warehouseService;
         }
 
-        //[Authorize(Policy = "AdminOnly")]
+        [Authorize(Policy = "AdminOnly")]
         [HttpPost("create")]
         public async Task<IActionResult> CreateWarehouse([FromBody] CreateWarehouseDto dto)
         {
@@ -29,7 +31,7 @@ namespace IMS.API.Controllers
                 : ErrorResponse(result.Error ?? "Failed to create warehouse", result.Message);
         }
 
-        //[Authorize(Policy = "AdminOnly")]
+        [Authorize(Policy = "AdminOnly")]
         [HttpPut("update/{warehouseId}")]
         public async Task<IActionResult> UpdateWarehouse(
             [FromRoute] Guid warehouseId,
@@ -44,7 +46,7 @@ namespace IMS.API.Controllers
                 : ErrorResponse(result.Error ?? "Failed to update warehouse", result.Message);
         }
 
-        //[Authorize(Policy = "AdminOnly")]
+        [Authorize(Policy = "AdminOnly")]
         [HttpDelete("delete/{warehouseId}")]
         public async Task<IActionResult> DeleteWarehouse([FromRoute] Guid warehouseId)
         {
@@ -54,7 +56,7 @@ namespace IMS.API.Controllers
                 : ErrorResponse(result.Error ?? "Failed to delete warehouse", result.Message);
         }
 
-        //[Authorize(Policy = "AdminOnly")]
+        [Authorize(Policy = "AdminOnly")]
         [HttpPut("mark-inactive/{warehouseId}")]
         public async Task<IActionResult> MarkAsInActive([FromRoute] Guid warehouseId)
         {
@@ -64,7 +66,7 @@ namespace IMS.API.Controllers
                 : ErrorResponse(result.Error ?? "Failed to mark warehouse as inactive", result.Message);
         }
 
-        //[Authorize(Policy = "AdminOnly")]
+        [Authorize(Policy = "AdminOnly")]
         [HttpPut("mark-active/{warehouseId}")]
         public async Task<IActionResult> MarkAsActive([FromRoute] Guid warehouseId)
         {
@@ -74,7 +76,7 @@ namespace IMS.API.Controllers
                 : ErrorResponse(result.Error ?? "Failed to mark warehouse as active", result.Message);
         }
 
-        //[Authorize(Policy = "Everyone")]
+        [Authorize(Policy = "Everyone")]
         [HttpGet("get-by-id")]
         public async Task<IActionResult> GetWarehouseById([FromQuery] Guid warehouseId)
         {
@@ -84,7 +86,7 @@ namespace IMS.API.Controllers
                 : NotFoundResponse(result.Error ?? "Warehouse not found", result.Message);
         }
 
-        //[Authorize(Policy = "Everyone")]
+        [Authorize(Policy = "Everyone")]
         [HttpGet("get-by-company")]
         public async Task<IActionResult> GetWarehouses(
             [FromQuery] Guid companyId,
@@ -97,7 +99,7 @@ namespace IMS.API.Controllers
                 : ErrorResponse(result.Error ?? "Failed to fetch warehouses", result.Message);
         }
 
-        //[Authorize(Policy = "Everyone")]
+        [Authorize(Policy = "Everyone")]
         [HttpGet("get-by-product")]
         public async Task<IActionResult> GetWarehousesContainingProduct([FromQuery] Guid productId)
         {

@@ -111,7 +111,7 @@ builder.Services.AddHangfire(configuration =>
 
 builder.Services.AddHangfireServer(options =>
 {
-    options.Queues = new[] { "critical", "email", "audit" };
+    options.Queues = new[] { "default" , "critical", "email", "audit" };
 });
 
 
@@ -136,19 +136,19 @@ builder.Services.AddAuthorization(options =>
 var app = builder.Build();
 
 // DB migrations and seeders
-using (var scope = app.Services.CreateScope())
-{
-    var services = scope.ServiceProvider;
+//using (var scope = app.Services.CreateScope())
+//{
+//    var services = scope.ServiceProvider;
 
-    var db = services.GetRequiredService<IMS_DbContext>();
+//    var db = services.GetRequiredService<IMS_DbContext>();
 
-    var RoleSeeder = services.GetRequiredService<Seeder>();
-    await RoleSeeder.RoleSeeder();
+//    var RoleSeeder = services.GetRequiredService<Seeder>();
+//    await RoleSeeder.RoleSeeder();
 
-    var AdminSeeder = services.GetRequiredService<Seeder>();
-    var config = services.GetRequiredService<IConfiguration>();
-    await AdminSeeder.AdminSeeder(config);
-}
+//    var AdminSeeder = services.GetRequiredService<Seeder>();
+//    var config = services.GetRequiredService<IConfiguration>();
+//    await AdminSeeder.AdminSeeder(config);
+//}
 
 // recurring jobs
 using (var scope = app.Services.CreateScope())

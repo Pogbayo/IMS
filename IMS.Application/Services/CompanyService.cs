@@ -28,18 +28,18 @@ namespace IMS.Application.Services
         private readonly IMailerService _mailer;
         private readonly IPhoneValidator _phonevalidator;
         public CompanyService(
-            IPhoneValidator phonevalidator,
-            IJobQueue jobqueue,
-            IMailerService mailer,
-            ILogger<CompanyService> logger,
-            IWarehouseService warehouseService,
-            IAppDbContext context,
-            UserManager<AppUser> userManager,
-            RoleManager<IdentityRole<Guid>> roleManager,
-            IAuditService audit,
-            ICurrentUserService currentUserService,
-            ICompanyCalculations companyCalculations,
-            ICustomMemoryCache cache
+                        IPhoneValidator phonevalidator,
+                        IJobQueue jobqueue,
+                        IMailerService mailer,
+                        ILogger<CompanyService> logger,
+                        IWarehouseService warehouseService,
+                        IAppDbContext context,
+                        UserManager<AppUser> userManager,
+                        RoleManager<IdentityRole<Guid>> roleManager,
+                        IAuditService audit,
+                        ICurrentUserService currentUserService,
+                        ICompanyCalculations companyCalculations,
+                        ICustomMemoryCache cache
         )
         {
             _jobqueue = jobqueue;
@@ -75,7 +75,7 @@ namespace IMS.Application.Services
                 _context.Companies.Add(company);
                 await _context.SaveChangesAsync();
 
-                 await _phonevalidator.Validate(dto.AdminPhoneNumber!);
+                await _phonevalidator.Validate(dto.AdminPhoneNumber!);
 
                 var appUser = new AppUser
                 {
@@ -99,7 +99,9 @@ namespace IMS.Application.Services
                         $"User registration failed: {errors}"
                     );
                 }
+
                 appUser.EmailConfirmed = true;
+                appUser.PhoneNumberConfirmed = true;
 
                 if (!await _roleManager.RoleExistsAsync("Admin"))
                 {
@@ -119,20 +121,29 @@ namespace IMS.Application.Services
 
                     try
                     {
-                    _jobqueue.Enqueue<IAuditService>(
-                        job => job.LogAsync(
-                            appUser.Id,
-                            company.Id,
-                            AuditAction.Create,
-                            $"Company '{company.Name}' registered with admin '{appUser.Email}'."
-                        ));
+                    //_jobqueue.Enqueue<IAuditService>(
+                    //    job => job.LogAsync(
+                    //        appUser.Id,
+                    //        company.Id,
+                    //        AuditAction.Create,
+                    //        $"Company '{company.Name}' registered with admin '{appUser.Email}'."
+                    //    ));
+
+                        _jobqueue.Enqueue<IAuditService>(
+                            job => job.LogAsync(
+                                appUser.Id,
+                                company.Id,
+                                AuditAction.Create, $"Company '{company.Name}' registered with admin '{appUser.Email}'."),
+                            "audit"
+                        );
 
                     _jobqueue.Enqueue<IMailerService>(
                         job => job.SendEmailAsync(
                             appUser.Email!,
-                            "Confirm Your Account",
-                            $"Hi {appUser.FirstName}, please confirm your account."
-                       ));
+                            "Welcome!",
+                            $"Hi {appUser.FirstName}, InvManager welcomes you on board."
+                       ),
+                        "email");
                     }
                     catch (Exception ex)
                     {

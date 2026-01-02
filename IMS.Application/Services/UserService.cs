@@ -25,7 +25,10 @@ namespace IMS.Application.Services
         private readonly ITokenGenerator _tokenGenerator;
         private readonly IAppDbContext _context;
         private readonly IImageService _imageService;
+        private readonly IJobQueue _jobqueue;
+
         public UserService(
+            IJobQueue jobqueue,
             ITokenGenerator tokenGenerator,
             IImageService imageService,
             ICustomMemoryCache cache,
@@ -36,6 +39,7 @@ namespace IMS.Application.Services
             ILogger<UserService> logger,
             IAuditService audit)
         {
+            _jobqueue = jobqueue;
             _mailer = mailer;
             _imageService = imageService;
             _context = context;
@@ -47,7 +51,7 @@ namespace IMS.Application.Services
             _audit = audit;
         }
 
-        public async Task<Result<Guid>> AddUserToCompany(CreateUserDto dto)
+        public async Task<Result<AddedUserResponseDto>> AddUserToCompany(CreateUserDto dto)
         {
             try
             {
@@ -57,25 +61,58 @@ namespace IMS.Application.Services
                     Email = dto.Email
                 };
 
-                var result = await _userManager.CreateAsync(user, dto.Password);
+                var password = $"{dto.FirstName}123$";
+
+                var result = await _userManager.CreateAsync(user, password);
 
                 if (!result.Succeeded)
-                    return Result<Guid>.FailureResponse(string.Join("; ", result.Errors.Select(e => e.Description)));
+                    return Result<AddedUserResponseDto>.FailureResponse(string.Join("; ", result.Errors.Select(e => e.Description)));
 
-                await _audit.LogAsync(Guid.NewGuid(), dto.CompanyId, AuditAction.Create, $"User {dto.Email} added.");
+                await AddRoleToUser(user.Id, dto.UserRole.ToString());
 
-                _logger.LogInformation("User {UserName} created successfully", dto.UserName);
+                var company = await _context.Companies
+                    .Where(c => c.Id == dto.CompanyId)
+                    .FirstOrDefaultAsync();
 
-                await _mailer.SendEmailAsync(dto.Email, $"You have been added to a company", $"Hello,\n\nYou have been added to the company: {dto.CompanyId}. You can now log in using your credentials.");
+                if (company == null)
+                {
+                    _logger.LogWarning("Company not found");
+                }
 
-                _cache.Remove($"company:{dto.CompanyId}:users");
+                company!.Users.Add(user);
 
-                return Result<Guid>.SuccessResponse(user.Id);
+                await _context.SaveChangesAsync();
+
+                _jobqueue.Enqueue<IAuditService>(job => job.LogAsync(
+                   user.Id,
+                   company.Id,
+                   AuditAction.Create,
+                   $"User {dto.Email} added.")
+                );
+               
+                _logger.LogInformation("User {UserName} created successfully to the company", dto.UserName);
+
+                _jobqueue.Enqueue<IMailerService>(job => job.SendEmailAsync(
+                  user.Email,
+                  $"You have been added to a company",
+                  $"Hello,\n\nYou have been added to the company: {dto.CompanyId}. You can now log in using your credentials.")
+               );
+
+               _cache.Remove($"company:{dto.CompanyId}:users");
+
+                var userdetails = new AddedUserResponseDto
+                {
+                    UserId = user.Id,
+                    Email = user.Email,
+                    LoginPassword = password
+                };
+
+                return Result<AddedUserResponseDto>.SuccessResponse(userdetails);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error adding user {Email}", dto.Email);
-                return Result<Guid>.FailureResponse("Failed to add user");
+                return Result<AddedUserResponseDto>.FailureResponse("Failed to add user");
             }
         }
         public async Task<Result<LoginResponseDto>> Login(LoginUserDto userDetails)
@@ -148,32 +185,55 @@ namespace IMS.Application.Services
                 return Result<string>.FailureResponse("Failed to update user");
             }
         }
-        public async Task<Result<string>> DeleteUser(Guid userId)
+
+        public async Task<Result<string>> RemoveUserFromCompany(Guid userId, Guid companyId)
         {
             try
             {
                 var user = await _userManager.FindByIdAsync(userId.ToString());
+
                 if (user == null)
                     return Result<string>.FailureResponse("User not found");
 
-                var result = await _userManager.DeleteAsync(user);
-                if (!result.Succeeded)
-                    return Result<string>.FailureResponse(string.Join("; ", result.Errors.Select(e => e.Description)));
+                user.CompanyId = null;
+                user.IsDeleted = true;
+                user.DeletedAt = DateTime.UtcNow;
 
-                await _audit.LogAsync(userId, Guid.Empty, AuditAction.Delete, $"User {user.Email} deleted.");
-                _logger.LogInformation("User {UserId} deleted", userId);
+                user.LockoutEnabled = true;
+                user.LockoutEnd = DateTimeOffset.MaxValue;
 
-                await _mailer.SendEmailAsync(user.Email!, "Removed from Company", $"Hello,\n\nYou have been removed from your company and no longer have access.");
+                //user.TokenVersion += 1;
+
+                var updateResult = await _userManager.UpdateAsync(user);
+                if (!updateResult.Succeeded)
+                    return Result<string>.FailureResponse(
+                        string.Join("; ", updateResult.Errors.Select(e => e.Description))
+                    );
+
+                _jobqueue.Enqueue<IAuditService>(job => job.LogAsync(
+                    user.Id,
+                    companyId,
+                    AuditAction.Delete,
+                    $"User {user.Email} removed from company"
+                ));
+
+                _jobqueue.Enqueue<IMailerService>(job => job.SendEmailAsync(
+                    user.Email!,
+                    "Access Revoked",
+                    "You have been removed from your company and can no longer log in."
+                ));
 
                 _cache.Remove($"UserById{userId}");
-                _cache.Remove($"company:{user.CompanyId}:users");
+                _cache.Remove($"company:{companyId}:users");
 
-                return Result<string>.SuccessResponse("User deleted successfully");
+                _logger.LogInformation("User {UserId} removed from company {CompanyId}", userId, companyId);
+
+                return Result<string>.SuccessResponse("User removed from company successfully");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error deleting user {UserId}", userId);
-                return Result<string>.FailureResponse("Failed to delete user");
+                _logger.LogError(ex, "Error removing user {UserId}", userId);
+                return Result<string>.FailureResponse("Failed to remove user from company");
             }
         }
         public async Task<Result<UserDto>> GetUserById(Guid userId)

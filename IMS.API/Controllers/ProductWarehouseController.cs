@@ -1,5 +1,6 @@
 ﻿using IMS.Application.Interfaces;
 using IMS.Domain.Enums;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -7,6 +8,7 @@ namespace IMS.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
     public class ProductWarehouseController : BaseController
     {
         private readonly IProductWarehouseService _productWarehouseService;
@@ -16,7 +18,7 @@ namespace IMS.API.Controllers
             _productWarehouseService = productWarehouseService;
         }
 
-        //[Authorize(Policy = "AdminOnly")]
+        [Authorize(Policy = "AdminOnly")]
         [HttpPost("update-product")]
         public async Task<IActionResult> UpdateProductInWarehouse(
             [FromQuery] Guid productId,
@@ -42,7 +44,7 @@ namespace IMS.API.Controllers
             }
         }
 
-        //[Authorize(Policy = "AdminOnly")]
+        [Authorize(Policy = "AdminOnly")]
         [HttpPost("transfer-product")]
         public async Task<IActionResult> TransferProduct(
             [FromQuery] Guid productId,

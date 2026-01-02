@@ -1,5 +1,6 @@
 ﻿using IMS.Application.DTO.Category;
 using IMS.Application.Interfaces;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -7,6 +8,7 @@ namespace IMS.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
     public class CategoryController : BaseController
     {
         private readonly ICategoryService _categoryService;
@@ -16,7 +18,7 @@ namespace IMS.API.Controllers
             _categoryService = categoryService;
         }
 
-        //[Authorize(Policy = "AdminOnly")]
+        [Authorize(Policy = "AdminOnly")]
         [HttpPost("create")]
         public async Task<IActionResult> CreateCategory([FromBody] CreateCategoryDto dto)
         {
@@ -29,7 +31,7 @@ namespace IMS.API.Controllers
                 : ErrorResponse(result.Error!, result.Message);
         }
 
-        //[Authorize(Policy = "AdminOnly")]
+        [Authorize(Policy = "AdminOnly")]
         [HttpPut("update/{categoryId}")]
         public async Task<IActionResult> UpdateCategory(
             [FromRoute] Guid categoryId,
@@ -42,7 +44,7 @@ namespace IMS.API.Controllers
             return OkResponse("Category updated successfully");
         }
 
-        //[Authorize(Policy = "AdminOnly")]
+        [Authorize(Policy = "AdminOnly")]
         [HttpDelete("delete/{categoryId}")]
         public async Task<IActionResult> DeleteCategory([FromRoute] Guid categoryId)
         {
@@ -53,7 +55,7 @@ namespace IMS.API.Controllers
             return OkResponse("Category deleted successfully");
         }
 
-        //[Authorize(Policy = "Everyone")]
+        [Authorize(Policy = "Everyone")]
         [HttpGet("get-by-id")]
         public async Task<IActionResult> GetCategoryById([FromQuery] Guid categoryId)
         {
@@ -66,7 +68,7 @@ namespace IMS.API.Controllers
                 : NotFoundResponse(result.Error ?? "Category not found");
         }
 
-        //[Authorize(Policy = "Everyone")]
+        [Authorize(Policy = "Everyone")]
         [HttpGet("get-all")]
         public async Task<IActionResult> GetAllCategories()
         {

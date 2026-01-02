@@ -1,5 +1,6 @@
 ﻿using IMS.Application.DTO.User;
 using IMS.Application.Interfaces;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -7,6 +8,7 @@ namespace IMS.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
     public class UserController : BaseController
     {
         private readonly IUserService _userService;
@@ -16,7 +18,7 @@ namespace IMS.API.Controllers
             _userService = userService;
         }
 
-        //[Authorize(Policy = "AdminOnly")]
+        [Authorize(Policy = "AdminOnly")]
         [HttpPost("add-to-company")]
         public async Task<IActionResult> AddUserToCompany([FromBody] CreateUserDto dto)
         {
@@ -29,7 +31,7 @@ namespace IMS.API.Controllers
                 : ErrorResponse(result.Error!);
         }
 
-        //[Authorize(Policy = "AdminOnly")]
+        [Authorize(Policy = "AdminOnly")]
         [HttpGet("get-all-users")]
         public async Task<IActionResult> GetAllUsers([FromQuery] Guid companyId)
         {
@@ -42,7 +44,7 @@ namespace IMS.API.Controllers
                 : ErrorResponse("Error fetching users");
         }
 
-        //[Authorize(Policy = "AdminOnly")]
+        [Authorize(Policy = "AdminOnly")]
         [HttpPut("update/{userId}")]
         public async Task<IActionResult> UpdateUser(
             [FromRoute] Guid userId,
@@ -70,7 +72,7 @@ namespace IMS.API.Controllers
                 : ErrorResponse(result.Error!);
         }
 
-        //[Authorize(Policy = "AdminOnly")]
+        [Authorize(Policy = "AdminOnly")]
         [HttpDelete("delete/{userId}")]
         public async Task<IActionResult> DeleteUser([FromRoute] Guid userId)
         {
@@ -83,7 +85,7 @@ namespace IMS.API.Controllers
                 : ErrorResponse(result.Error!);
         }
 
-        //[Authorize(Policy = "AdminOnly")]
+        [Authorize(Policy = "AdminOnly")]
         [HttpPost("add-role")]
         public async Task<IActionResult> AddRoleToUser(
             [FromQuery] Guid userId,
@@ -98,7 +100,7 @@ namespace IMS.API.Controllers
                 : ErrorResponse(result.Error!);
         }
 
-        //[Authorize(Policy = "Everyone")]
+        [Authorize(Policy = "Everyone")]
         [HttpGet("by-id")]
         public async Task<IActionResult> GetById([FromQuery] Guid userId)
         {
@@ -111,7 +113,7 @@ namespace IMS.API.Controllers
                 : NotFoundResponse("User not found");
         }
 
-        //[Authorize(Policy = "Everyone")]
+        [Authorize(Policy = "Everyone")]
         [HttpPut("update-profile-image")]
         public async Task<IActionResult> UpdateProfileImage(
             [FromQuery] Guid userId,
