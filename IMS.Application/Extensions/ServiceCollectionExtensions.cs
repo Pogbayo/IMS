@@ -48,6 +48,7 @@ namespace IMS.Application.Extensions
             services.AddScoped<IStockTransactionService>(sp =>
                 new StockTransactionService(
                     sp.GetRequiredService<IAuditService>(),
+                    sp.GetRequiredService<IJobQueue>(),
                     () => sp.GetRequiredService<IProductService>(), // lazy loading
                     sp.GetRequiredService<IAppDbContext>(),
                     sp.GetRequiredService<ILogger<StockTransactionService>>(),
