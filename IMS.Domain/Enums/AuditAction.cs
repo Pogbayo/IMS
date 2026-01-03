@@ -24,6 +24,9 @@
 
         Failed = 13,
         Error = 14,
-        Transfer = 15
+        Transfer = 15,
+        
+        //invalidation
+        Invalidate = 16
     }
 }

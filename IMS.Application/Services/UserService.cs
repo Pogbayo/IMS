@@ -284,7 +284,7 @@ namespace IMS.Application.Services
                 if (!result.Succeeded)
                     return Result<string>.FailureResponse(string.Join("; ", result.Errors.Select(e => e.Description)));
 
-                _jobqueue.EnqueueAudit(user.Id, companyId, AuditAction.Delete, $"User {user.Email} removed from company");
+                _jobqueue.EnqueueAudit(user.Id, companyId, AuditAction.Invalidate, $"User {user.Email} removed from company");
                 _jobqueue.EnqueueEmail(user.Email!, "Access Revoked", "You have been removed from your company and can no longer log in.");
 
                 _cache.Remove($"UserById{userId}");

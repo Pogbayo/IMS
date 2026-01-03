@@ -182,6 +182,13 @@ namespace IMS.Application.Services
                     return Result<string>.FailureResponse("Company not found");
                 }
 
+                foreach (var user in company.Users)
+                {
+                    user.Tokenversion++;
+                    _jobqueue.EnqueueAudit(user.Id, company.Id, AuditAction.Invalidate, $"{user.FirstName} has been invalidated");
+                    _jobqueue.EnqueueEmail(user.Email!,"IMPORTANT NOTICE!!!!", $"Dear Customer, we are sorry to inform you that about your invalidation from our system as your compnay has been deleted from our database...");
+                }
+
                 company.MarkAsDeleted();
                 await _context.SaveChangesAsync();
 
