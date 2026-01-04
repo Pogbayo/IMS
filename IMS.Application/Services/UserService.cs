@@ -215,6 +215,9 @@ namespace IMS.Application.Services
                     string.Join("; ", result.Errors.Select(e => e.Description))
                 );
 
+            user.EmailConfirmed = true;
+            await _context.SaveChangesAsync();
+
             _jobqueue.Enqueue<IAuditService>(job =>
                 job.LogAsync(
                     user.Id,

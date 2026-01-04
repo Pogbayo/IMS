@@ -59,6 +59,7 @@ namespace IMS.API.Controllers
                 : ErrorResponse(result.Error!);
         }
 
+        [AllowAnonymous]
         [HttpPost("login")]
         public async Task<IActionResult> Login(
             [FromBody] LoginUserDto dto)

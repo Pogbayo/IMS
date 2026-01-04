@@ -22,40 +22,43 @@ namespace IMS.Infrastructure.Token
             _userManager = userManager;
         }
 
-      
-       public async Task<string> GenerateAccessToken(AppUser user)
+
+        public async Task<string> GenerateAccessToken(AppUser user)
         {
             if (user == null)
             {
                 _logger.LogWarning("User object is null");
-                return "User object is null";
+                throw new ArgumentNullException(nameof(user));
             }
 
             var claims = new List<Claim>
-            {
-            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new Claim(ClaimTypes.Email, user.Email ?? string.Empty),
-            };
+    {
+        new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+        new Claim(ClaimTypes.Email, user.Email ?? string.Empty),
+        new Claim("tokenVersion", user.Tokenversion.ToString())
+    };
 
             var roles = await _userManager.GetRolesAsync(user);
             foreach (var role in roles)
             {
                 claims.Add(new Claim(ClaimTypes.Role, role));
             }
-            new Claim("tokenVersion", user.Tokenversion.ToString());
 
             var expiryMinutes = _jwtSettings.ExpireHours * 60;
-            SymmetricSecurityKey symmetricSecurityKey = new(Encoding.UTF8.GetBytes(_jwtSettings.Key));
-            var key = symmetricSecurityKey;
+
+            var key = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(_jwtSettings.Key)
+            );
+
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
             var token = new JwtSecurityToken(
                 issuer: _jwtSettings.Issuer,
                 audience: _jwtSettings.Audience,
-                expires: DateTimeOffset.UtcNow.AddMinutes(expiryMinutes).UtcDateTime,
+                expires: DateTime.UtcNow.AddMinutes(expiryMinutes),
                 claims: claims,
-                signingCredentials: creds);
-            //_logger.LogInformation($"This is your token :{token}");
+                signingCredentials: creds
+            );
 
             return new JwtSecurityTokenHandler().WriteToken(token);
         }
