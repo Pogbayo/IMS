@@ -9,7 +9,7 @@ namespace IMS.Application.Helpers
     {
         public static void EnqueueAudit(this IJobQueue jobqueue, Guid userId, Guid companyId, AuditAction action, string message)
         {
-            if (companyId != Guid.Empty)
+            if (companyId != Guid.Empty && userId != Guid.Empty)
             {
                 jobqueue.Enqueue<IAuditService>(job => job.LogAsync(
                     userId,

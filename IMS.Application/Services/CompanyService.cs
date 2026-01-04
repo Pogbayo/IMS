@@ -122,10 +122,8 @@ namespace IMS.Application.Services
 
                 try
                 {
-
                     _jobqueue.EnqueueAudit(Admin.Id, company.Id, AuditAction.Create, $"Company '{company.Name}' registered with admin '{Admin.Email}'.");
                     _jobqueue.EnqueueEmail(Admin.Email, "Welcome!", $"Hi {Admin.FirstName}, InvManager welcomes you on board.");
-
                 }
                 catch (Exception ex)
                 {
@@ -186,7 +184,7 @@ namespace IMS.Application.Services
                 {
                     user.Tokenversion++;
                     _jobqueue.EnqueueAudit(user.Id, company.Id, AuditAction.Invalidate, $"{user.FirstName} has been invalidated");
-                    _jobqueue.EnqueueEmail(user.Email!,"IMPORTANT NOTICE!!!!", $"Dear Customer, we are sorry to inform you that about your invalidation from our system as your compnay has been deleted from our database...");
+                    _jobqueue.EnqueueEmail(user.Email!,"IMPORTANT NOTICE!!!!", $"Dear Customer, we are sorry to inform you that about your invalidation from our system as your compnay has been deleted from our database.");
                 }
 
                 company.MarkAsDeleted();
