@@ -16,7 +16,13 @@ namespace IMS.Application.Services
         private readonly IJobQueue _jobqueue;
         private readonly ICurrentUserService _currentUser;
         private readonly IUserService _userService;
-        public CategoryService(IAppDbContext context, ILogger<CategoryService> logger, IJobQueue jobqueue, ICurrentUserService currentUserService, IUserService userService)
+
+        public CategoryService(
+            IAppDbContext context,
+            ILogger<CategoryService> logger,
+            IJobQueue jobqueue,
+            ICurrentUserService currentUserService,
+            IUserService userService)
         {
             _currentUser = currentUserService;
             _userService = userService;
@@ -24,7 +30,6 @@ namespace IMS.Application.Services
             _logger = logger;
             _jobqueue = jobqueue;
         }
-       
 
         public async Task<Result<Guid>> CreateCategory(CreateCategoryDto dto)
         {
@@ -50,13 +55,23 @@ namespace IMS.Application.Services
                     category.Id
                 );
 
-                _jobqueue.EnqueueAudit(userDetails.Data!.Id, userDetails.Data.CompanyId ?? Guid.Empty, AuditAction.Create, $"{userDetails.Data.FirstName} created {category.Name} category");
+                _jobqueue.EnqueueAudit(
+                    userDetails.Data!.Id,
+                    userDetails.Data.CompanyId ?? Guid.Empty,
+                    AuditAction.Create,
+                    $"{userDetails.Data.FirstName} created {category.Name} category"
+                );
+
+                _jobqueue.EnqueueCloudWatchAudit(
+                    $"{userDetails.Data.FirstName} created {category.Name} category"
+                );
 
                 return Result<Guid>.SuccessResponse(category.Id, "Category created successfully");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error creating category");
+                _jobqueue.EnqueueCloudWatchAudit($"Error creating category: {ex.Message}");
                 return Result<Guid>.FailureResponse("Error creating category", ex.Message);
             }
         }
@@ -81,11 +96,15 @@ namespace IMS.Application.Services
                 await _context.SaveChangesAsync();
 
                 _logger.LogInformation("Category {CategoryId} updated successfully", categoryId);
+
+                _jobqueue.EnqueueCloudWatchAudit($"Category {category.Name} ({categoryId}) updated by user {_currentUser.GetCurrentUserId()}");
+
                 return Result<string>.SuccessResponse("Category updated successfully");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error updating category {CategoryId}", categoryId);
+                _jobqueue.EnqueueCloudWatchAudit($"Error updating category {categoryId}: {ex.Message}");
                 return Result<string>.FailureResponse("Error updating category", ex.Message);
             }
         }
@@ -110,11 +129,15 @@ namespace IMS.Application.Services
                 await _context.SaveChangesAsync();
 
                 _logger.LogInformation("Category {CategoryId} deleted successfully", categoryId);
+
+                _jobqueue.EnqueueCloudWatchAudit($"Category {category.Name} ({categoryId}) deleted by user {_currentUser.GetCurrentUserId()}");
+
                 return Result<string>.SuccessResponse("Category deleted successfully");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error deleting category {CategoryId}", categoryId);
+                _jobqueue.EnqueueCloudWatchAudit($"Error deleting category {categoryId}: {ex.Message}");
                 return Result<string>.FailureResponse("Error deleting category", ex.Message);
             }
         }
@@ -141,11 +164,14 @@ namespace IMS.Application.Services
                 if (category == null)
                     return Result<CategoryDto>.FailureResponse("Category not found");
 
+                _jobqueue.EnqueueCloudWatchAudit($"Category {categoryId} fetched by user {_currentUser.GetCurrentUserId()}");
+
                 return Result<CategoryDto>.SuccessResponse(category);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error fetching category {CategoryId}", categoryId);
+                _jobqueue.EnqueueCloudWatchAudit($"Error fetching category {categoryId}: {ex.Message}");
                 return Result<CategoryDto>.FailureResponse("Error fetching category", ex.Message);
             }
         }
@@ -167,11 +193,15 @@ namespace IMS.Application.Services
                     .ToListAsync();
 
                 _logger.LogInformation("Fetched {Count} categories", categories.Count);
+
+                _jobqueue.EnqueueCloudWatchAudit($"All categories fetched by user {_currentUser.GetCurrentUserId()}. Count: {categories.Count}");
+
                 return Result<List<CategoryDto>>.SuccessResponse(categories);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error fetching all categories");
+                _jobqueue.EnqueueCloudWatchAudit($"Error fetching all categories: {ex.Message}");
                 return Result<List<CategoryDto>>.FailureResponse("Error fetching categories", ex.Message);
             }
         }

@@ -1,13 +1,15 @@
-﻿using IMS.Domain.Entities;
+﻿using IMS.Application.Interfaces;
+using IMS.Application.Settings;
+using IMS.Domain.Entities;
+using IMS.Infrastructure.CloudWatch;
 using IMS.Infrastructure.DBSeeder;
 using IMS.Infrastructure.Mailer;
 using IMS.Infrastructure.Persistence;
 using IMS.Infrastructure.Token;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.EntityFrameworkCore;
-using IMS.Application.Settings;
 
 namespace IMS.Infrastructure.Extensions
 {
@@ -37,6 +39,8 @@ namespace IMS.Infrastructure.Extensions
             .AddEntityFrameworkStores<IMS_DbContext>()
             .AddDefaultTokenProviders();
 
+            services.Configure<AwsSettings>(configuration.GetSection("AWS"));
+            services.AddSingleton<ICloudWatchLogger, CloudWatchLogger>();
             services.Configure<CloudinarySettings>(configuration.GetSection("CloudinarySettings"));
             services.Configure<JwtSetting>(configuration.GetSection("Jwt"));
             services.Configure<SMTPSettings>(configuration.GetSection("EmailSettings"));

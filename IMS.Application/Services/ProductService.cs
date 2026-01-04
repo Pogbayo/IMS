@@ -118,6 +118,7 @@ namespace IMS.Application.Services
                 var companyIdNullDto = await GetCurrentUserCompanyIdAsync();
 
                 _jobqueue.EnqueueAudit(userIdNullDto, companyIdNullDto, Domain.Enums.AuditAction.Create, "Attempted to create product with null DTO");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userIdNullDto} attempted null DTO product creation for Company {companyIdNullDto}");
 
                 return Result<Guid>.FailureResponse("Bad Request");
             }
@@ -138,15 +139,18 @@ namespace IMS.Application.Services
                 {
                     _logger.LogWarning("Supplier not found with ID {SupplierId}", dto.SupplierId);
                     _jobqueue.EnqueueAudit(userId, companyId, Domain.Enums.AuditAction.Create, $"Attempted to create product but supplier {dto.SupplierId} not found");
+                    _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to create product but supplier {dto.SupplierId} not found for Company {companyId}");
+
                     return Result<Guid>.FailureResponse("Supplier not found");
                 }
 
-                // Selecting the first warehouse ID in the list as the referecne warehouse for SKU
                 var referenceWarehouseId = dto.Warehouses.FirstOrDefault();
                 if (referenceWarehouseId == Guid.Empty)
                 {
                     _logger.LogWarning("No warehouse provided for product creation");
                     _jobqueue.EnqueueAudit(userId, companyId, Domain.Enums.AuditAction.Create, "Attempted to create product without any warehouses");
+                    _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to create product without any warehouses for Company {companyId}");
+
                     return Result<Guid>.FailureResponse("At least one warehouse is required");
                 }
 
@@ -159,6 +163,8 @@ namespace IMS.Application.Services
                 {
                     _logger.LogWarning("Reference warehouse not found with ID {WarehouseId}", referenceWarehouseId);
                     _jobqueue.EnqueueAudit(userId, companyId, Domain.Enums.AuditAction.Create, $"Attempted to create product but reference warehouse {referenceWarehouseId} not found");
+                    _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to create product but reference warehouse {referenceWarehouseId} not found for Company {companyId}");
+
                     return Result<Guid>.FailureResponse("Reference warehouse not found");
                 }
 
@@ -170,25 +176,21 @@ namespace IMS.Application.Services
                 {
                     SkuAttempt++;
 
-
                     var lastProductSku = await _context.ProductWarehouses
-                    .Where(pw => pw.WarehouseId == warehouseDeets.Id && pw.Product!.SupplierId == supplierDeets.Id)
-                    .OrderByDescending(pw => pw.Product!.SKU)
-                    .Select(p => p.Product!.SKU)
-                    .FirstOrDefaultAsync();
-
+                        .Where(pw => pw.WarehouseId == warehouseDeets.Id && pw.Product!.SupplierId == supplierDeets.Id)
+                        .OrderByDescending(pw => pw.Product!.SKU)
+                        .Select(p => p.Product!.SKU)
+                        .FirstOrDefaultAsync();
 
                     var lastNumber = SkuGenerator.GetNumericPart(lastProductSku!);
                     int uniqueNumber = lastNumber + 1;
-                    var ProductSku = SkuGenerator.GenerateSku(warehouseDeets.Name, dto.Name, supplierDeets.Name, uniqueNumber,dto.RetailPrice);
+                    var ProductSku = SkuGenerator.GenerateSku(warehouseDeets.Name, dto.Name, supplierDeets.Name, uniqueNumber, dto.RetailPrice);
 
                     _logger.LogInformation("Generated SKU {SKU} for product {ProductName}", ProductSku, dto.Name);
 
                     var category = new Category { Name = dto!.CategoryName! };
-
                     _context.Categories.Add(category);
                     await _context.SaveChangesAsync();
-
                     _logger.LogInformation("Created category {CategoryName}", category.Name);
 
                     var Product = new Product
@@ -205,6 +207,7 @@ namespace IMS.Application.Services
                     };
 
                     _jobqueue.EnqueueAudit(userId, companyId, Domain.Enums.AuditAction.Create, $"Product '{Product.Name}' with SKU '{Product.SKU}' created successfully");
+                    _jobqueue.EnqueueCloudWatchAudit($"User {userId} created product '{Product.Name}' SKU '{Product.SKU}' for Company {companyId}");
                     _logger.LogInformation("Created product {ProductName} with SKU {SKU}", Product.Name, Product.SKU);
 
                     try
@@ -212,9 +215,11 @@ namespace IMS.Application.Services
                         _context.Products.Add(Product);
                         await _context.SaveChangesAsync();
 
-                        var productImageUrl = await _imageService.UploadImageAsync(dto.Image!, "ims/products",Product.Id);
-
-                        Product.ImgUrl = productImageUrl;
+                        if (dto.Image != null)
+                        {
+                            var productImageUrl = await _imageService.UploadImageAsync(dto.Image!, "ims/products", Product.Id);
+                            Product.ImgUrl = productImageUrl;
+                        }
 
                         SkuSaved = true;
 
@@ -228,14 +233,14 @@ namespace IMS.Application.Services
                             };
 
                             _context.ProductWarehouses.Add(pw);
-
                             await _context.SaveChangesAsync();
 
                             _logger.LogInformation("Linked product {ProductName} to warehouse {WarehouseId}", Product.Name, warehouseId);
-                            _jobqueue.EnqueueAudit(userId, companyId, Domain.Enums.AuditAction.Create, $"Product '{Product.Name}' linked to {dto.Warehouses.Count} warehouse(s)");
-                            _logger.LogInformation("Successfully created product {ProductName} and linked to {WarehouseCount} warehouse(s)", Product.Name, dto.Warehouses.Count);
+                            _jobqueue.EnqueueAudit(userId, companyId, Domain.Enums.AuditAction.Create, $"Product '{Product.Name}' linked to warehouse {warehouseId}");
+                            _jobqueue.EnqueueCloudWatchAudit($"User {userId} linked product '{Product.Name}' to warehouse {warehouseId} for Company {companyId}");
 
                             await transaction.CommitAsync();
+
                             var transactionDto = new CreateStockTransactionDto
                             {
                                 ProductId = Product.Id,
@@ -247,43 +252,40 @@ namespace IMS.Application.Services
                                 ToWarehouseId = pw.WarehouseId
                             };
 
-                            await _stockTransaction.LogTransaction
-                                (transactionDto);
+                            await _stockTransaction.LogTransaction(transactionDto);
 
                             foreach (var item in dto.Warehouses)
-                            {
                                 _cache.RemoveByPrefix($"Warehouse:{item}:");
-                            }
 
                             _cache.RemoveByPrefix($"Company:{companyId}:Products:");
                             _cache.RemoveByPrefix($"Products:Filtered:");
                             _cache.RemoveByPrefix($"Products:SKU:");
 
                             RemoveCompanyProductsCache(Product.CompanyId);
+
                             return Result<Guid>.SuccessResponse(Product.Id);
                         }
                     }
                     catch (DbUpdateException db)
                     {
-
                         if (db.InnerException?.Message.Contains("IX_Products_SKU") == true)
                         {
                             _logger.LogWarning("SKU conflict detected, retrying... Attempt {Attempt}", SkuAttempt);
-                           ((DbContext)_context).Entry(Product).State = EntityState.Detached;
-                            continue; 
+                            ((DbContext)_context).Entry(Product).State = EntityState.Detached;
+                            continue;
                         }
-
                         throw;
                     }
                 }
-            return Result<Guid>.FailureResponse("Failed to create product after multiple attempts due to SKU conflicts");
+
+                return Result<Guid>.FailureResponse("Failed to create product after multiple attempts due to SKU conflicts");
             }
             catch (Exception ex)
             {
-
                 await transaction.RollbackAsync();
                 _logger.LogError(ex, "Error creating product");
-                return Result<Guid>.FailureResponse("An error occurred while creating the product"); ;
+                _jobqueue.EnqueueCloudWatchAudit($"Error creating product by user {userId} for Company {companyId}: {ex.Message}");
+                return Result<Guid>.FailureResponse("An error occurred while creating the product");
             }
         }
 
@@ -292,64 +294,50 @@ namespace IMS.Application.Services
             var userId = _currentUserService.GetCurrentUserId();
             var companyId = await GetCurrentUserCompanyIdAsync();
 
-
             _logger.LogInformation("User {UserId} requested product with Id {ProductId}", userId, productId);
-
 
             if (productId == Guid.Empty)
             {
-                _jobqueue.EnqueueAudit(
-                    userId,
-                    companyId,
-                    AuditAction.Read,
-                    "Attempted to fetch product with empty Id");
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, "Attempted to fetch product with empty Id");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to fetch product with empty Id for Company {companyId}");
 
-                return Result<ProductDto>
-                    .FailureResponse("Bad Request: Product Id cannot be empty");
+                return Result<ProductDto>.FailureResponse("Bad Request: Product Id cannot be empty");
             }
 
             var summaryCacheKey = $"Product:{productId}:Summary";
-
             var stockCacheKey = $"Product:{productId}:Stock";
-
             var transactionsCacheKey = $"Product:{productId}:Transactions";
-
 
             if (!_cache.TryGetValue(summaryCacheKey, out ProductSummaryCache? summary))
             {
-                _logger.LogInformation(
-                  "Summary cache miss for product {ProductId}",
-                   productId);
+                _logger.LogInformation("Summary cache miss for product {ProductId}", productId);
 
                 summary = await _context.Products
-                     .Where(p => p.Id == productId)
-                     .Select(p => new ProductSummaryCache
-                     {
-                         Id = p.Id,
-                         Name = p.Name,
-                         SKU = p.SKU,
-                         ImgUrl = p.ImgUrl!,
-                         RetailPrice = p.RetailPrice,
-                         CostPrice = p.CostPrice,
-                         Profit = p.RetailPrice - p.CostPrice,
-                         SupplierInfo = new SupplierInfo
-                         {
-                             Id = p.Supplier.Id,
-                             SupplierName = p.Supplier.Name,
-                             PhoneNumber = p.Supplier.PhoneNumber,
-                             Email = p.Supplier.Email
-                         }
-                     }).FirstOrDefaultAsync();
+                    .Where(p => p.Id == productId)
+                    .Select(p => new ProductSummaryCache
+                    {
+                        Id = p.Id,
+                        Name = p.Name,
+                        SKU = p.SKU,
+                        ImgUrl = p.ImgUrl!,
+                        RetailPrice = p.RetailPrice,
+                        CostPrice = p.CostPrice,
+                        Profit = p.RetailPrice - p.CostPrice,
+                        SupplierInfo = new SupplierInfo
+                        {
+                            Id = p.Supplier.Id,
+                            SupplierName = p.Supplier.Name,
+                            PhoneNumber = p.Supplier.PhoneNumber,
+                            Email = p.Supplier.Email
+                        }
+                    }).FirstOrDefaultAsync();
 
                 if (summary == null)
                 {
                     _logger.LogWarning("Product not found");
 
-                    _jobqueue.EnqueueAudit(
-                       userId,
-                       companyId,
-                       AuditAction.Read,
-                       $"Attempted to fetch non-existing product {productId}");
+                    _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Attempted to fetch non-existing product {productId}");
+                    _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to fetch non-existing product {productId} for Company {companyId}");
 
                     return Result<ProductDto>.FailureResponse("Product not found in the Database");
                 }
@@ -358,20 +346,20 @@ namespace IMS.Application.Services
                 {
                     AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(30)
                 });
+
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Product {summary.Name} ({productId}) loaded from DB and cached");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} loaded product {summary.Name} ({productId}) from DB and cached for Company {companyId}");
             }
             else
             {
-                _logger.LogInformation(
-                    "Summary cache hit for product {ProductId}",
-                    productId);
+                _logger.LogInformation("Summary cache hit for product {ProductId}", productId);
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Product {productId} summary retrieved from cache");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} retrieved product {productId} summary from cache for Company {companyId}");
             }
-
 
             if (!_cache.TryGetValue(stockCacheKey, out ProductStockDto cachedStockValue))
             {
-                _logger.LogInformation(
-                    "Stock cache miss for product {ProductId}",
-                    productId);
+                _logger.LogInformation("Stock cache miss for product {ProductId}", productId);
 
                 var warehouses = await _context.ProductWarehouses
                     .Where(pw => pw.ProductId == productId)
@@ -399,25 +387,24 @@ namespace IMS.Application.Services
                     }
                 };
 
-                _cache.Set(stockCacheKey, cachedStockValue,
-                   new MemoryCacheEntryOptions
-                   {
-                       AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5)
-                   });
+                _cache.Set(stockCacheKey, cachedStockValue, new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5)
+                });
+
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Product {productId} stock loaded from DB and cached");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} loaded product {productId} stock from DB and cached for Company {companyId}");
             }
             else
             {
-                _logger.LogInformation(
-                    "Stock cache hit for product {ProductId}",
-                    productId);
+                _logger.LogInformation("Stock cache hit for product {ProductId}", productId);
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Product {productId} stock retrieved from cache");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} retrieved product {productId} stock from cache for Company {companyId}");
             }
-
 
             if (!_cache.TryGetValue(transactionsCacheKey, out List<StockTransactionDto> CachedTransactions))
             {
-                _logger.LogInformation(
-                   "Transactions cache miss for product {ProductId}",
-                   productId);
+                _logger.LogInformation("Transactions cache miss for product {ProductId}", productId);
 
                 var stockTransactions = await _context.StockTransactions
                     .Where(st => st.ProductWarehouse!.ProductId == productId)
@@ -432,14 +419,12 @@ namespace IMS.Application.Services
 
                     if (st.Type == TransactionType.Transfer)
                     {
-                        var result = await CalculateNewStockDetails(
-                        st.Type,
-                        st.ProductWarehouse!.Quantity,
-                        st.QuantityChanged,
-                        st.FromWarehouse!,
-                        st.ToWarehouse!);
-
-                        newStockData = result;
+                        newStockData = await CalculateNewStockDetails(
+                            st.Type,
+                            st.ProductWarehouse!.Quantity,
+                            st.QuantityChanged,
+                            st.FromWarehouse!,
+                            st.ToWarehouse!);
                     }
                     else if (st.Type == TransactionType.Purchase)
                     {
@@ -470,21 +455,19 @@ namespace IMS.Application.Services
                     });
                 }
 
-                _cache.Set(
-                      transactionsCacheKey,
-                      CachedTransactions,
-                      new MemoryCacheEntryOptions
-                      {
-                          AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(2)
-                      });
+                _cache.Set(transactionsCacheKey, CachedTransactions, new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(2)
+                });
 
-                _logger.LogInformation("Fetched {TransactionCount} stock transactions for product {ProductId}", cachedStockValue.OverAllCount, productId);
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Product {productId} transactions loaded from DB and cached");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} loaded product {productId} transactions from DB and cached for Company {companyId}");
             }
             else
             {
-                _logger.LogInformation(
-                    "Transactions cache hit for product {ProductId}",
-                    productId);
+                _logger.LogInformation("Transactions cache hit for product {ProductId}", productId);
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Product {productId} transactions retrieved from cache");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} retrieved product {productId} transactions from cache for Company {companyId}");
             }
 
             var productDto = new ProductDto
@@ -503,64 +486,49 @@ namespace IMS.Application.Services
                 Transactions = CachedTransactions
             };
 
-            _logger.LogInformation(
-                   "User {UserId} successfully retrieved product {ProductId}",
-                   userId, productId);
+            _logger.LogInformation("User {UserId} successfully retrieved product {ProductId}", userId, productId);
+            _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Product {summary.Name} ({productId}) retrieved successfully");
+            _jobqueue.EnqueueCloudWatchAudit($"User {userId} retrieved product {summary.Name} ({productId}) successfully for Company {companyId}");
 
-            _jobqueue.EnqueueAudit(
-                userId,
-                companyId,
-                AuditAction.Read,
-                $"Product {summary.Name} ({productId}) retrieved successfully");
-
-            return Result<ProductDto>
-                .SuccessResponse(productDto, "Product retrieved successfully");
+            return Result<ProductDto>.SuccessResponse(productDto, "Product retrieved successfully");
         }
 
-        public async Task<Result<List<ProductsDto>>> GetProductsByCompanyId(Guid companyId,int pageSize,int pageNumber)
+        public async Task<Result<List<ProductsDto>>> GetProductsByCompanyId(Guid companyId, int pageSize, int pageNumber)
         {
             var userId = _currentUserService.GetCurrentUserId();
 
             if (companyId == Guid.Empty)
             {
                 _logger.LogWarning("Company ID cannot be empty");
-                return Result<List<ProductsDto>>
-                    .FailureResponse("Please, provide a valid company ID");
+                _jobqueue.EnqueueAudit(userId, Guid.Empty, AuditAction.Read, "Attempted to fetch products with empty CompanyId");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to fetch products with empty CompanyId");
+                return Result<List<ProductsDto>>.FailureResponse("Please, provide a valid company ID");
             }
 
             pageNumber = Math.Max(pageNumber, 1);
             pageSize = Math.Clamp(pageSize, 1, 100);
 
-            var cacheKey =
-                $"Company:{companyId}:Products:Page:{pageNumber}:Size:{pageSize}";
+            var cacheKey = $"Company:{companyId}:Products:Page:{pageNumber}:Size:{pageSize}";
 
-   
             if (_cache.TryGetValue(cacheKey, out List<ProductsDto> cachedProducts))
             {
-                _logger.LogInformation(
-                    "Products cache HIT for Company {CompanyId} (Page {Page}, Size {Size})",
-                    companyId, pageNumber, pageSize);
+                _logger.LogInformation("Products cache HIT for Company {CompanyId} (Page {Page}, Size {Size})", companyId, pageNumber, pageSize);
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Company products (Page {pageNumber}, Size {pageSize}) retrieved from cache");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} retrieved company products (Page {pageNumber}, Size {pageSize}) from cache for Company {companyId}");
 
-                return Result<List<ProductsDto>>
-                    .SuccessResponse(cachedProducts, "Company products retrieved from cache");
+                return Result<List<ProductsDto>>.SuccessResponse(cachedProducts, "Company products retrieved from cache");
             }
 
-            _logger.LogInformation(
-                "Products cache MISS for Company {CompanyId} (Page {Page}, Size {Size})",
-                companyId, pageNumber, pageSize);
+            _logger.LogInformation("Products cache MISS for Company {CompanyId} (Page {Page}, Size {Size})", companyId, pageNumber, pageSize);
 
-      
-            var companyExists = await _context.Companies
-                .AnyAsync(c => c.Id == companyId);
+            var companyExists = await _context.Companies.AnyAsync(c => c.Id == companyId);
 
             if (!companyExists)
             {
-                _logger.LogWarning(
-                    "Company {CompanyId} not found while fetching products",
-                    companyId);
-
-                return Result<List<ProductsDto>>
-                    .FailureResponse("Company with provided ID not found");
+                _logger.LogWarning("Company {CompanyId} not found while fetching products", companyId);
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, "Attempted to fetch products for non-existing company");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to fetch products for non-existing Company {companyId}");
+                return Result<List<ProductsDto>>.FailureResponse("Company with provided ID not found");
             }
 
             try
@@ -568,61 +536,37 @@ namespace IMS.Application.Services
                 var companyProducts = await _context.Products
                     .Where(p => p.CompanyId == companyId)
                     .OrderBy(p => p.Name)
-                    .Skip((pageNumber - 1) * pageSize) 
+                    .Skip((pageNumber - 1) * pageSize)
                     .Take(pageSize)
-                    .Select(p => new ProductsDto(
-                        p.Id,
-                        p.Name,
-                        p.SKU,
-                        p.ImgUrl,
-                        p.RetailPrice
-                    ))
+                    .Select(p => new ProductsDto(p.Id, p.Name, p.SKU, p.ImgUrl, p.RetailPrice))
                     .ToListAsync();
 
                 if (!companyProducts.Any())
                 {
-                    _logger.LogWarning(
-                        "No products found for Company {CompanyId}",
-                        companyId);
-
-                    return Result<List<ProductsDto>>
-                        .FailureResponse("No products found for the company");
+                    _logger.LogWarning("No products found for Company {CompanyId}", companyId);
+                    _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Fetched company products but none found (Page {pageNumber}, Size {pageSize})");
+                    _jobqueue.EnqueueCloudWatchAudit($"User {userId} fetched products but none found for Company {companyId}");
+                    return Result<List<ProductsDto>>.FailureResponse("No products found for the company");
                 }
 
-        
-                _cache.Set(
-                    cacheKey,
-                    companyProducts,
-                    new MemoryCacheEntryOptions
-                    {
-                        AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5),
-                        SlidingExpiration = TimeSpan.FromMinutes(2)
-                    });
+                _cache.Set(cacheKey, companyProducts, new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5),
+                    SlidingExpiration = TimeSpan.FromMinutes(2)
+                });
 
-                _logger.LogInformation(
-                    "Cached {Count} products for Company {CompanyId} (Page {Page}, Size {Size})",
-                    companyProducts.Count, companyId, pageNumber, pageSize);
+                _logger.LogInformation("Cached {Count} products for Company {CompanyId} (Page {Page}, Size {Size})", companyProducts.Count, companyId, pageNumber, pageSize);
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Fetched and cached company products (Page {pageNumber}, Size {pageSize})");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} fetched and cached company products (Page {pageNumber}, Size {pageSize}) for Company {companyId}");
 
-                _jobqueue.EnqueueAudit(
-                            userId,
-                            companyId,
-                            AuditAction.Read,
-                            $"Fetched company products (Page {pageNumber}, Size {pageSize})"
-                            );
-
-
-                return Result<List<ProductsDto>>
-                    .SuccessResponse(companyProducts, "Company products successfully retrieved");
+                return Result<List<ProductsDto>>.SuccessResponse(companyProducts, "Company products successfully retrieved");
             }
             catch (Exception ex)
             {
-                _logger.LogCritical(
-                    ex,
-                    "Error fetching products for Company {CompanyId}",
-                    companyId);
-
-                return Result<List<ProductsDto>>
-                    .FailureResponse("An unknown error occurred while fetching products");
+                _logger.LogCritical(ex, "Error fetching products for Company {CompanyId}", companyId);
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Error fetching company products: {ex.Message}");
+                _jobqueue.EnqueueCloudWatchAudit($"Error fetching products for Company {companyId} by User {userId}: {ex.Message}");
+                return Result<List<ProductsDto>>.FailureResponse("An unknown error occurred while fetching products");
             }
         }
 
@@ -633,6 +577,8 @@ namespace IMS.Application.Services
             if (productId == Guid.Empty)
             {
                 _logger.LogWarning("Product ID cannot be null.");
+                _jobqueue.EnqueueAudit(userId, Guid.Empty, AuditAction.Update, "Attempted to update product with empty ID");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to update product with empty ID");
                 return Result<string>.FailureResponse("Please provide an ID.");
             }
 
@@ -640,6 +586,8 @@ namespace IMS.Application.Services
             if (product == null)
             {
                 _logger.LogWarning("Product not found.");
+                _jobqueue.EnqueueAudit(userId, Guid.Empty, AuditAction.Update, $"Attempted to update non-existing product {productId}");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to update non-existing product {productId}");
                 return Result<string>.FailureResponse("Product with provided ID not found.");
             }
 
@@ -651,20 +599,15 @@ namespace IMS.Application.Services
 
             await _context.SaveChangesAsync();
 
-            _jobqueue.EnqueueAudit(
-                userId,
-                product.CompanyId, 
-                AuditAction.Update,
-                $"Updated product '{product.Name}' with ID {product.Id}"
-            );
+            _jobqueue.EnqueueAudit(userId, product.CompanyId, AuditAction.Update, $"Updated product '{product.Name}' with ID {product.Id}");
+            _jobqueue.EnqueueCloudWatchAudit($"User {userId} updated product '{product.Name}' ({product.Id}) for Company {product.CompanyId}");
 
             _cache.Remove($"Product:{productId}:Summary");
             _cache.Remove($"Product:{productId}:Stock");
             _cache.Remove($"Product:{productId}:Transactions");
             _cache.Remove($"Company:{product.CompanyId}:Products");
-
-            _cache.RemoveByPrefix($"Products:Filtered:");      
-            _cache.RemoveByPrefix($"Products:SKU:");           
+            _cache.RemoveByPrefix($"Products:Filtered:");
+            _cache.RemoveByPrefix($"Products:SKU:");
 
             return Result<string>.SuccessResponse("Product updated successfully.");
         }
@@ -676,6 +619,8 @@ namespace IMS.Application.Services
             if (productId == Guid.Empty)
             {
                 _logger.LogWarning("Product ID cannot be null.");
+                _jobqueue.EnqueueAudit(userId, Guid.Empty, AuditAction.Delete, "Attempted to delete product with empty ID");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to delete product with empty ID");
                 return Result<string>.FailureResponse("Please provide a valid ID.");
             }
 
@@ -683,6 +628,8 @@ namespace IMS.Application.Services
             if (product == null)
             {
                 _logger.LogWarning("Product not found.");
+                _jobqueue.EnqueueAudit(userId, Guid.Empty, AuditAction.Delete, $"Attempted to delete non-existing product {productId}");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to delete non-existing product {productId}");
                 return Result<string>.FailureResponse("Product with provided ID not found.");
             }
 
@@ -690,26 +637,23 @@ namespace IMS.Application.Services
 
             await _context.SaveChangesAsync();
 
-            _jobqueue.EnqueueAudit(userId,
-                product.CompanyId,
-                AuditAction.Delete,
-                $"Deleted product '{product.Name}' with ID {product.Id}"
-                );
-           
+            _jobqueue.EnqueueAudit(userId, product.CompanyId, AuditAction.Delete, $"Deleted product '{product.Name}' with ID {product.Id}");
+            _jobqueue.EnqueueCloudWatchAudit($"User {userId} deleted product '{product.Name}' ({product.Id}) for Company {product.CompanyId}");
+
             _logger.LogInformation("Product '{ProductName}' marked as deleted by user {UserId}", product.Name, userId);
+
+            // Clear cache
             _cache.Remove($"Product:{productId}:Summary");
             _cache.Remove($"Product:{productId}:Stock");
             _cache.Remove($"Product:{productId}:Transactions");
-
             _cache.RemoveByPrefix($"Products:Filtered:");
             _cache.RemoveByPrefix($"Products:SKU:");
             _cache.RemoveByPrefix($"Company:{product.CompanyId}:Products");
-            _cache.RemoveByPrefix($"Warehouse:");  
+            _cache.RemoveByPrefix($"Warehouse:");
 
             return Result<string>.SuccessResponse("Product deleted successfully.");
         }
-
-        public async Task<Result<WarehouseProductsResponse>> GetProductsInWarehouse(Guid warehouseId,int pageSize,int pageIndex)
+        public async Task<Result<WarehouseProductsResponse>> GetProductsInWarehouse(Guid warehouseId, int pageSize, int pageIndex)
         {
             var userId = _currentUserService.GetCurrentUserId();
             var companyId = await GetCurrentUserCompanyIdAsync();
@@ -717,6 +661,8 @@ namespace IMS.Application.Services
             if (warehouseId == Guid.Empty)
             {
                 _logger.LogWarning("Please, provide an ID");
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, "Attempted to fetch products with empty warehouse ID");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to fetch products with empty warehouse ID for Company {companyId}");
                 return Result<WarehouseProductsResponse>.FailureResponse("Please, provide an ID");
             }
 
@@ -752,6 +698,7 @@ namespace IMS.Application.Services
                 {
                     _logger.LogInformation("User {UserId} attempted to fetch products in warehouse {WarehouseId} but no products found", userId, warehouseId);
                     _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Attempted to fetch products with Warehouse Id: {warehouseId}");
+                    _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to fetch products in Warehouse {warehouseId} but no products found for Company {companyId}");
                     return Result<WarehouseProductsResponse>.FailureResponse("No products found in this warehouse");
                 }
 
@@ -769,13 +716,15 @@ namespace IMS.Application.Services
 
                 _logger.LogInformation("User {UserId} fetched products in warehouse {WarehouseId}", userId, warehouseId);
                 _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Fetched products with Warehouse Id: {warehouseId}");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} fetched products in Warehouse {warehouseId} successfully for Company {companyId}");
 
                 return Result<WarehouseProductsResponse>.SuccessResponse(response, "Warehouse products retrieved successfully");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error fetching products in warehouse {WarehouseId} for user {UserId}", warehouseId, userId);
-                await _audit.LogAsync(userId, companyId, AuditAction.Read, $"Attempted to fetch products with Warehouse Id: {warehouseId}");
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Attempted to fetch products with Warehouse Id: {warehouseId} - Error: {ex.Message}");
+                _jobqueue.EnqueueCloudWatchAudit($"Error fetching products in Warehouse {warehouseId} for User {userId}, Company {companyId}: {ex.Message}");
                 return Result<WarehouseProductsResponse>.FailureResponse("An error occurred while fetching warehouse products");
             }
         }
@@ -790,28 +739,16 @@ namespace IMS.Application.Services
             if (productId == Guid.Empty)
             {
                 _logger.LogWarning("Invalid ProductId provided");
-
-                _jobqueue.EnqueueAudit(
-                    userId,
-                    companyId,
-                    AuditAction.Update,
-                    "Attempted to upload product image with empty ProductId"
-                );
-
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Update, "Attempted to upload product image with empty ProductId");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to upload product image with empty ProductId for Company {companyId}");
                 return Result<string>.FailureResponse("Invalid product ID");
             }
 
             if (file == null || file.Length == 0)
             {
                 _logger.LogWarning("Empty or null image uploaded for product {ProductId}", productId);
-
-                _jobqueue.EnqueueAudit(
-                    userId,
-                    companyId,
-                    AuditAction.Update,
-                    $"Attempted to upload empty image for product {productId}"
-                );
-
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Update, $"Attempted to upload empty image for product {productId}");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to upload empty image for product {productId} for Company {companyId}");
                 return Result<string>.FailureResponse("Image file is required");
             }
 
@@ -819,68 +756,40 @@ namespace IMS.Application.Services
             if (product == null)
             {
                 _logger.LogWarning("Product {ProductId} not found", productId);
-
-                _jobqueue.EnqueueAudit(
-                    userId,
-                    companyId,
-                    AuditAction.Update,
-                    $"Attempted to upload image for non-existing product {productId}"
-                );
-
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Update, $"Attempted to upload image for non-existing product {productId}");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to upload image for non-existing product {productId} for Company {companyId}");
                 return Result<string>.FailureResponse("Product not found");
             }
 
             try
             {
-                var imageUrl = await _imageService.UploadImageAsync(
-                    file,
-                    "ims/products",
-                    productId
-                );
+                var imageUrl = await _imageService.UploadImageAsync(file, "ims/products", productId);
 
                 product.ImgUrl = imageUrl;
                 product.MarkAsUpdated();
-
                 await _context.SaveChangesAsync();
 
-                _logger.LogInformation(
-                    "Image uploaded successfully for product {ProductId}",
-                    productId
-                );
+                _logger.LogInformation("Image uploaded successfully for product {ProductId}", productId);
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Update, $"Product image updated successfully for product {product.Name} ({productId})");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} updated product image for {product.Name} ({productId}) for Company {companyId}");
 
-                _jobqueue.EnqueueAudit(
-                    userId,
-                    companyId,
-                    AuditAction.Update,
-                    $"Product image updated successfully for product {product.Name} ({productId})"
-                );
                 _cache.Remove($"Product:{productId}:Summary");
-                _cache.RemoveByPrefix($"Products:Filtered:");  
-                _cache.RemoveByPrefix($"Products:SKU:");       
-                _cache.RemoveByPrefix($"Company:{companyId}:Products"); 
+                _cache.RemoveByPrefix($"Products:Filtered:");
+                _cache.RemoveByPrefix($"Products:SKU:");
+                _cache.RemoveByPrefix($"Company:{companyId}:Products");
 
                 return Result<string>.SuccessResponse(imageUrl, "Product image uploaded successfully");
             }
             catch (Exception ex)
             {
-                _logger.LogError(
-                    ex,
-                    "Error occurred while uploading image for product {ProductId}",
-                    productId
-                );
-
-                _jobqueue.EnqueueAudit(
-                    userId,
-                    companyId,
-                    AuditAction.Update,
-                    $"Failed to upload product image for product {productId}. Error: {ex.Message}"
-                );
-
+                _logger.LogError(ex, "Error occurred while uploading image for product {ProductId}", productId);
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Update, $"Failed to upload product image for product {productId}. Error: {ex.Message}");
+                _jobqueue.EnqueueCloudWatchAudit($"Failed to upload product image for {productId} by User {userId} for Company {companyId}: {ex.Message}");
                 return Result<string>.FailureResponse("Failed to upload product image");
             }
         }
 
-        public async Task<Result<PaginatedProductsDto>> GetProductBySku(string sku, int pageNumber = 1,int pageSize = 20)
+        public async Task<Result<PaginatedProductsDto>> GetProductBySku(string sku, int pageNumber = 1, int pageSize = 20)
         {
             var userId = _currentUserService.GetCurrentUserId();
             var companyId = await GetCurrentUserCompanyIdAsync();
@@ -888,13 +797,14 @@ namespace IMS.Application.Services
             if (string.IsNullOrWhiteSpace(sku))
             {
                 _logger.LogWarning("User {UserId} tried to fetch products with empty SKU", userId);
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, "Attempted to fetch products with empty SKU");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to fetch products with empty SKU for Company {companyId}");
                 return Result<PaginatedProductsDto>.FailureResponse("Please provide a valid SKU to search with");
             }
 
             pageNumber = Math.Max(pageNumber, 1);
             pageSize = Math.Clamp(pageSize, 1, 100);
 
-           
             var cacheKey = $"Products:SKU:{sku}:Page:{pageNumber}:Size:{pageSize}";
 
             if (_cache.TryGetValue(cacheKey, out PaginatedProductsDto? cachedResult))
@@ -914,6 +824,7 @@ namespace IMS.Application.Services
                 {
                     _logger.LogInformation("No products found with SKU {SKU} for user {UserId}", sku, userId);
                     _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"No products found with SKU {sku}");
+                    _jobqueue.EnqueueCloudWatchAudit($"User {userId} searched for SKU {sku} but no products found for Company {companyId}");
                     return Result<PaginatedProductsDto>.FailureResponse("No products found with this SKU");
                 }
 
@@ -935,7 +846,6 @@ namespace IMS.Application.Services
                     TotalCount = totalCount
                 };
 
-               
                 _cache.Set(cacheKey, paginatedResult, new MemoryCacheEntryOptions
                 {
                     AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5),
@@ -944,23 +854,30 @@ namespace IMS.Application.Services
 
                 _logger.LogInformation("User {UserId} fetched {Count} products by SKU {SKU} and cached the result", userId, products.Count, sku);
                 _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Fetched {products.Count} products by SKU {sku}");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} fetched {products.Count} products by SKU {sku} for Company {companyId}");
 
                 return Result<PaginatedProductsDto>.SuccessResponse(paginatedResult, "Products retrieved successfully");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error fetching products by SKU {SKU} for user {UserId}", sku, userId);
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Error fetching products by SKU {sku}: {ex.Message}");
+                _jobqueue.EnqueueCloudWatchAudit($"Error fetching products by SKU {sku} for User {userId} in Company {companyId}: {ex.Message}");
                 return Result<PaginatedProductsDto>.FailureResponse("An error occurred while fetching products");
             }
         }
 
-        public async Task<Result<List<ProductsDto>>> GetFilteredProducts(Guid? warehouseId,Guid? supplierId,string? Name,string? Sku,string categoryName,int pageNumber = 1,int pageSize = 20)
+        public async Task<Result<List<ProductsDto>>> GetFilteredProducts(
+            Guid? warehouseId, Guid? supplierId, string? Name, string? Sku, string categoryName, int pageNumber = 1, int pageSize = 20)
         {
-            _logger.LogInformation("Products filtering...");
+            var userId = _currentUserService.GetCurrentUserId();
+            var companyId = await GetCurrentUserCompanyIdAsync();
+
+            _logger.LogInformation("Products filtering started by user {UserId}", userId);
 
             pageNumber = Math.Max(pageNumber, 1);
             pageSize = Math.Clamp(pageSize, 1, 100);
-    
+
             var cacheKey = $"Products:Filtered:" +
                            $"Warehouse:{warehouseId}:" +
                            $"Supplier:{supplierId}:" +
@@ -970,11 +887,10 @@ namespace IMS.Application.Services
                            $"Page:{pageNumber}:" +
                            $"Size:{pageSize}";
 
-        
             if (_cache.TryGetValue(cacheKey, out List<ProductsDto> cachedProducts))
             {
-                _logger.LogInformation("Filtered products cache HIT");
-                return Result<List<ProductsDto>>.SuccessResponse(cachedProducts,"Products retrieved from cache");
+                _logger.LogInformation("Filtered products cache HIT for user {UserId}", userId);
+                return Result<List<ProductsDto>>.SuccessResponse(cachedProducts, "Products retrieved from cache");
             }
 
             var query = _context.Products.AsQueryable();
@@ -998,7 +914,9 @@ namespace IMS.Application.Services
 
             if (totalCount == 0)
             {
-                _logger.LogWarning("No product with filter query found");
+                _logger.LogWarning("No product found for the filter query by user {UserId}", userId);
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, "No products found with applied filters");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} applied filters but no products found for Company {companyId}");
                 return Result<List<ProductsDto>>.FailureResponse("No products found");
             }
 
@@ -1014,18 +932,17 @@ namespace IMS.Application.Services
                 ))
                 .ToListAsync();
 
-            _cache.Set(
-                cacheKey,
-                products,
-                new MemoryCacheEntryOptions
-                {
-                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5),
-                    SlidingExpiration = TimeSpan.FromMinutes(2)
-                });
+            _cache.Set(cacheKey, products, new MemoryCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5),
+                SlidingExpiration = TimeSpan.FromMinutes(2)
+            });
 
-            _logger.LogInformation("Filtered products cached with key {CacheKey}", cacheKey);
+            _logger.LogInformation("Filtered products cached with key {CacheKey} for user {UserId}", cacheKey, userId);
+            _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Fetched {products.Count} filtered products");
+            _jobqueue.EnqueueCloudWatchAudit($"User {userId} fetched {products.Count} filtered products for Company {companyId}");
 
-            return Result<List<ProductsDto>>.SuccessResponse(products,"Products retrieved successfully");
+            return Result<List<ProductsDto>>.SuccessResponse(products, "Products retrieved successfully");
         }
     }
 }

@@ -31,5 +31,15 @@ namespace IMS.Application.Helpers
                 ), "email");
             }
         }
+
+        public static void EnqueueCloudWatchAudit(this IJobQueue jobqueue, string message)
+        {
+            if (!string.IsNullOrWhiteSpace(message))
+            {
+                jobqueue.Enqueue<ICloudWatchLogger>(job => job.LogAsync(
+                    message
+                ), "email");
+            }
+        }
     }
 }

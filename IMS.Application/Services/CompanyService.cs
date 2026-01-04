@@ -28,6 +28,7 @@ namespace IMS.Application.Services
         private readonly IJobQueue _jobqueue;
         private readonly IMailerService _mailer;
         private readonly IPhoneValidator _phonevalidator;
+
         public CompanyService(
                         IPhoneValidator phonevalidator,
                         IJobQueue jobqueue,
@@ -65,7 +66,6 @@ namespace IMS.Application.Services
             using var transaction = await ((DbContext)_context).Database.BeginTransactionAsync();
             try
             {
-               
                 var company = new Company
                 {
                     Name = dto.CompanyName!,
@@ -94,15 +94,13 @@ namespace IMS.Application.Services
                 if (!identityResult.Succeeded)
                 {
                     await transaction.RollbackAsync();
-
                     var errors = string.Join("; ", identityResult.Errors.Select(e => e.Description));
+
+                    _jobqueue.EnqueueCloudWatchAudit($"Failed company registration attempt for {dto.CompanyEmail}: {errors}");
                     return Result<CreatedCompanyDto>.FailureResponse(
                         $"User registration failed: {errors}"
                     );
                 }
-
-                //appUser.EmailConfirmed = true;
-                //appUser.PhoneNumberConfirmed = true;
 
                 if (!await _roleManager.RoleExistsAsync("Admin"))
                 {
@@ -123,11 +121,14 @@ namespace IMS.Application.Services
                 try
                 {
                     _jobqueue.EnqueueAudit(Admin.Id, company.Id, AuditAction.Create, $"Company '{company.Name}' registered with admin '{Admin.Email}'.");
+                    _jobqueue.EnqueueCloudWatchAudit($"Company '{company.Name}' registered with admin '{Admin.Email}'.");
+
                     _jobqueue.EnqueueEmail(Admin.Email, "Welcome!", $"Hi {Admin.FirstName}, InvManager welcomes you on board.");
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Post-registration tasks failed");
+                    _jobqueue.EnqueueCloudWatchAudit($"Post-registration tasks failed for company '{company.Name}': {ex.Message}");
                 }
 
                 return Result<CreatedCompanyDto>.SuccessResponse(new CreatedCompanyDto
@@ -147,13 +148,14 @@ namespace IMS.Application.Services
                     TopProductsBySales = new(),
                     TotalSalesPerMonth = 0,
                     LowOnStockProducts = new()
-                },"Company registered Successfully");
+                }, "Company registered Successfully");
             }
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-
                 _logger.LogError(ex, "Company registration failed for {Email}", dto.CompanyEmail);
+
+                _jobqueue.EnqueueCloudWatchAudit($"Company registration failed for {dto.CompanyEmail}: {ex.InnerException?.Message ?? ex.Message}");
 
                 return Result<CreatedCompanyDto>.FailureResponse(
                     "Transaction not complete",
@@ -168,6 +170,7 @@ namespace IMS.Application.Services
             if (companyId == Guid.Empty)
             {
                 await _audit.LogAsync(currentUserId, companyId, AuditAction.Failed, "Attempted to delete company but Id was empty");
+                _jobqueue.EnqueueCloudWatchAudit($"User {currentUserId} attempted to delete company but Id was empty");
                 return Result<string>.FailureResponse("Id cannot be null");
             }
 
@@ -176,7 +179,8 @@ namespace IMS.Application.Services
                 var company = await _context.Companies.FindAsync(companyId);
                 if (company == null)
                 {
-                    await _audit.LogAsync(currentUserId, companyId, AuditAction.Failed, "Attempted to delete company but company not found");
+                    _jobqueue.EnqueueAudit(currentUserId, companyId, AuditAction.Failed, "Attempted to delete company but company not found");
+                    _jobqueue.EnqueueCloudWatchAudit($"User {currentUserId} attempted to delete company {companyId} but it was not found");
                     return Result<string>.FailureResponse("Company not found");
                 }
 
@@ -184,15 +188,16 @@ namespace IMS.Application.Services
                 {
                     user.Tokenversion++;
                     _jobqueue.EnqueueAudit(user.Id, company.Id, AuditAction.Invalidate, $"{user.FirstName} has been invalidated");
-                    _jobqueue.EnqueueEmail(user.Email!,"IMPORTANT NOTICE!!!!", $"Dear Customer, we are sorry to inform you that about your invalidation from our system as your compnay has been deleted from our database.");
+                    _jobqueue.EnqueueCloudWatchAudit($"User {user.Id} invalidated due to company deletion {companyId}");
+                    _jobqueue.EnqueueEmail(user.Email!, "IMPORTANT NOTICE!!!!", $"Dear Customer, we are sorry to inform you that your account has been invalidated because company {company.Name} was deleted.");
                 }
 
                 company.MarkAsDeleted();
                 await _context.SaveChangesAsync();
 
                 _jobqueue.EnqueueAudit(currentUserId, companyId, AuditAction.Delete, "Company deleted successfully");
+                _jobqueue.EnqueueCloudWatchAudit($"Company {companyId} deleted successfully by user {currentUserId}");
 
-                // Invalidate cache for this company
                 _cache.Remove($"Company_{companyId}");
 
                 return Result<string>.SuccessResponse("Company deleted successfully");
@@ -200,7 +205,8 @@ namespace IMS.Application.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Unexpected error deleting company");
-                await _audit.LogAsync(currentUserId, companyId, AuditAction.Failed, "Unexpected error deleting company");
+                 _jobqueue.EnqueueAudit(currentUserId, companyId, AuditAction.Failed, "Unexpected error deleting company");
+                _jobqueue.EnqueueCloudWatchAudit($"Unexpected error deleting company {companyId} by user {currentUserId}: {ex.Message}");
                 return Result<string>.FailureResponse("An unexpected error occurred while deleting the company");
             }
         }
@@ -213,13 +219,13 @@ namespace IMS.Application.Services
             {
                 cacheEntry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10);
 
-
                 var userId = _currentUserService.GetCurrentUserId();
                 var today = DateTime.UtcNow.Date;
 
                 if (companyId == Guid.Empty)
                 {
-                    await _audit.LogAsync(userId, companyId, AuditAction.Failed, "Attempted to fetch company but Id is empty");
+                    _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Failed, "Attempted to fetch company but Id is empty");
+                    _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to fetch company but Id was empty");
                     return Result<CompanyDto>.FailureResponse("Id cannot be null");
                 }
 
@@ -231,18 +237,20 @@ namespace IMS.Application.Services
                     .Where(st => st.CompanyId == companyId);
 
                 var company = await _context.Companies
-                    .Include(c => c.CreatedBy) 
+                    .Include(c => c.CreatedBy)
                     .FirstOrDefaultAsync(c => c.Id == companyId);
 
                 if (company == null)
                 {
-                    await _audit.LogAsync(userId, companyId, AuditAction.Failed, "Company not found");
+                    _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Failed, "Company not found");
+                    _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to fetch company {companyId} but it was not found");
                     return Result<CompanyDto>.FailureResponse("Company not found");
                 }
 
                 if (company.CreatedBy == null)
                 {
-                    await _audit.LogAsync(userId, companyId, AuditAction.Failed, "Company has no creator assigned");
+                    _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Failed, "Company has no creator assigned");
+                    _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to fetch company {companyId} but creator was null");
                     return Result<CompanyDto>.FailureResponse("Company creator not found");
                 }
 
@@ -262,17 +270,16 @@ namespace IMS.Application.Services
                     TotalSalesPerMonth = await _companyCalculations.TotalSalesPerMonth(stockTransactions),
                     TotalNumberOfProducts = ProductsCount,
                     TotalInventoryValue = todayStat != null ? todayStat.TotalInventoryValue : 0m,
-
                     TopProductsBySales = todayStat != null
-                        ? JsonSerializer.Deserialize<List<TopProductDto>>(todayStat.TopProductsBySalesJson) ?? new ()
-                        : new (),
-
+                        ? JsonSerializer.Deserialize<List<TopProductDto>>(todayStat.TopProductsBySalesJson) ?? new()
+                        : new(),
                     LowOnStockProducts = todayStat != null
-                        ? JsonSerializer.Deserialize<List<LowOnStockProduct>>(todayStat.LowOnStockProductsJson) ?? new ()
-                        : new ()
+                        ? JsonSerializer.Deserialize<List<LowOnStockProduct>>(todayStat.LowOnStockProductsJson) ?? new()
+                        : new()
                 };
 
-                _jobqueue.EnqueueAudit(userId,companyId,AuditAction.Read,$"Viewed dashboard for company '{company.Name}'");
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Viewed dashboard for company '{company.Name}'");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} viewed dashboard for company '{company.Name}'");
 
                 return Result<CompanyDto>.SuccessResponse(companyDto);
             });
@@ -287,7 +294,8 @@ namespace IMS.Application.Services
             var company = await _context.Companies.FirstOrDefaultAsync(c => c.Id == companyId);
             if (company == null)
             {
-                await _audit.LogAsync(currentUserId, companyId, AuditAction.Failed, "Attempted to update company but not found");
+                _jobqueue.EnqueueAudit(currentUserId, companyId, AuditAction.Failed, "Attempted to update company but not found");
+                _jobqueue.EnqueueCloudWatchAudit($"User {currentUserId} attempted to update company {companyId} but it was not found");
                 return Result<string>.FailureResponse("Company not found");
             }
 
@@ -299,6 +307,7 @@ namespace IMS.Application.Services
             await _context.UpdateChangesAsync(company);
 
             _jobqueue.EnqueueAudit(currentUserId, companyId, AuditAction.Update, $"Company: {companyId} updated by {currentUserId}");
+            _jobqueue.EnqueueCloudWatchAudit($"Company {companyId} updated by user {currentUserId}");
 
             _cache.Remove($"Company_{companyId}");
 
@@ -314,7 +323,10 @@ namespace IMS.Application.Services
                 cacheEntry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10);
 
                 if (pageNumber < 1 || pageSize < 1)
+                {
+                    _jobqueue.EnqueueCloudWatchAudit($"Invalid pagination parameters: page {pageNumber}, size {pageSize}");
                     return Result<List<CompanyDto>>.FailureResponse("PageNumber and PageSize cannot be less than 1");
+                }
 
                 var companies = await _context.Companies
                     .Skip((pageNumber - 1) * pageSize)
@@ -329,7 +341,12 @@ namespace IMS.Application.Services
                     .ToListAsync();
 
                 if (!companies.Any())
+                {
+                    _jobqueue.EnqueueCloudWatchAudit($"User {_currentUserService.GetCurrentUserId()} fetched companies page {pageNumber} but no companies found");
                     return Result<List<CompanyDto>>.FailureResponse("No companies found");
+                }
+
+                _jobqueue.EnqueueCloudWatchAudit($"User {_currentUserService.GetCurrentUserId()} fetched companies page {pageNumber} with {companies.Count} results");
 
                 return Result<List<CompanyDto>>.SuccessResponse(companies);
             }) ?? Result<List<CompanyDto>>.FailureResponse("Failed to fetch companies from cache");
@@ -338,4 +355,3 @@ namespace IMS.Application.Services
         }
     }
 }
-

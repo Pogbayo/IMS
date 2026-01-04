@@ -37,10 +37,10 @@ namespace IMS.Infrastructure.Mailer
             await smtp.AuthenticateAsync(_smtpSettings.Username, _smtpSettings.Password);
             await smtp.SendAsync(email);
             await smtp.DisconnectAsync(true);
-            _logger.LogInformation($"SMTP Host: {_smtpSettings.Host}");
-            _logger.LogInformation($"SMTP Port: {_smtpSettings.Port}");
-            _logger.LogInformation($"SMTP Username: {_smtpSettings.Username}");
-            _logger.LogInformation($"Sending email to {toEmail}");
+            //_logger.LogInformation($"SMTP Host: {_smtpSettings.Host}");
+            //_logger.LogInformation($"SMTP Port: {_smtpSettings.Port}");
+            //_logger.LogInformation($"SMTP Username: {_smtpSettings.Username}");
+            //_logger.LogInformation($"Sending email to {toEmail}");
         }
     }
 }
