@@ -62,6 +62,7 @@ namespace IMS.Application.Services
                               $"{quantityChanged} units of product {productId} in warehouse {warehouseId}";
 
             _jobqueue.EnqueueAudit(userId, productWarehouse.Product!.CompanyId, AuditAction.Update, description);
+            _jobqueue.EnqueueCloudWatchAudit(description);
 
             _logger.LogInformation("Product {ProductId} in warehouse {WarehouseId} updated successfully", productId, warehouseId);
         }
@@ -101,6 +102,8 @@ namespace IMS.Application.Services
                               $"from warehouse {fromWarehouseId} to warehouse {toWarehouseId}";
 
             _jobqueue.EnqueueAudit(userId, product!.CompanyId, AuditAction.Transfer, description);
+            _jobqueue.EnqueueCloudWatchAudit(description);
+
         }
     }
 }

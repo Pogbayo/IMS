@@ -86,10 +86,12 @@ namespace IMS.Application.Services
                 company.Users.Add(user);
                 await _context.SaveChangesAsync();
 
-                _jobqueue.EnqueueAudit(user.Id, dto.CompanyId, AuditAction.Create, $"User {dto.Email} added to company.");
-                _jobqueue.EnqueueEmail(user.Email, "You have been added to a company", $"Hello,\n\nYou have been added to the company: {dto.CompanyId}. You can now log in using your credentials.");
-
                 _cache.Remove($"company:{dto.CompanyId}:users");
+
+                _jobqueue.EnqueueAudit(user.Id, dto.CompanyId, AuditAction.Create, $"User {user.Email} added to company.");
+                _jobqueue.EnqueueEmail(user.Email, "You have been added to a company",
+                    $"Hello,\n\nYou have been added to the company: {dto.CompanyId}. You can now log in using your credentials.");
+                _jobqueue.EnqueueCloudWatchAudit($"User {user.Id} ({user.Email}) added to Company {dto.CompanyId}.");
 
                 _logger.LogInformation("User {UserName} created successfully for company {CompanyId}", dto.UserName, dto.CompanyId);
 
@@ -150,7 +152,9 @@ namespace IMS.Application.Services
             _logger.LogInformation("User {UserId} logged in", user.Id);
 
             _jobqueue.EnqueueAudit(user.Id, user.CompanyId!.Value, AuditAction.Login, $"{user.FirstName} logged in.");
-            _jobqueue.EnqueueEmail(user.Email!,$"Welcome back {user.FirstName}",$"Hello {user.FirstName},\n\nWe're happy to see you back! You can now continue using your account.\n\nBest regards,\nYour Company Team");
+            _jobqueue.EnqueueEmail(user.Email!, $"Welcome back {user.FirstName}",
+                $"Hello {user.FirstName},\n\nWe're happy to see you back! You can now continue using your account.\n\nBest regards,\nYour Company Team");
+            _jobqueue.EnqueueCloudWatchAudit($"User {user.Id} ({user.Email}) logged in to Company {user.CompanyId}.");
 
             return Result<LoginResponseDto>.SuccessResponse(response, "Login successful.");
         }
@@ -165,39 +169,19 @@ namespace IMS.Application.Services
                 return Result<string>.FailureResponse("Email already confirmed");
 
             var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
-
             var encodedToken = Uri.EscapeDataString(token);
 
-            var confirmUrl =
-                $"https://frontend.com/confirm-email" +
-                $"?userId={user.Id}&token={encodedToken}";
+            var confirmUrl = $"https://frontend.com/confirm-email?userId={user.Id}&token={encodedToken}";
 
-            _jobqueue.Enqueue<IMailerService>(job =>
-                job.SendEmailAsync(
-                    user.Email!,
-                    "Confirm your email",
-                    $"Hello {user.FirstName},\n\n" +
-                    $"Please confirm your email by clicking the link below:\n\n" +
-                    $"{confirmUrl}\n\n" +
-                    $"If you did not request this, please ignore this email."
-                ),
-                "email"
-            );
-
-            _jobqueue.Enqueue<IAuditService>(job =>
-                job.LogAsync(
-                    user.Id,
-                    user.CompanyId!.Value,
-                    AuditAction.Create,
-                    "Email confirmation link sent"
-                ),
-                "audit"
-            );
+            _jobqueue.EnqueueEmail(user.Email!, "Confirm your email",
+                $"Hello {user.FirstName},\n\nPlease confirm your email by clicking the link below:\n{confirmUrl}\n\nIf you did not request this, please ignore this email.");
+            _jobqueue.EnqueueAudit(user.Id, user.CompanyId!.Value, AuditAction.Create, "Email confirmation link sent");
+            _jobqueue.EnqueueCloudWatchAudit($"Confirmation link sent to user {user.Id} ({user.Email}) for Company {user.CompanyId}");
 
             return Result<string>.SuccessResponse("Confirmation email sent");
         }
 
-        public async Task<Result<string>> ConfirmEmail(Guid userId , string token)
+        public async Task<Result<string>> ConfirmEmail(Guid userId, string token)
         {
             var user = await _userManager.FindByIdAsync(userId.ToString());
             if (user == null)
@@ -207,40 +191,22 @@ namespace IMS.Application.Services
                 return Result<string>.FailureResponse("Email already confirmed");
 
             var decodedToken = Uri.UnescapeDataString(token);
-
             var result = await _userManager.ConfirmEmailAsync(user, decodedToken);
 
             if (!result.Succeeded)
-                return Result<string>.FailureResponse(
-                    string.Join("; ", result.Errors.Select(e => e.Description))
-                );
+                return Result<string>.FailureResponse(string.Join("; ", result.Errors.Select(e => e.Description)));
 
             user.EmailConfirmed = true;
             await _context.SaveChangesAsync();
 
-            _jobqueue.Enqueue<IAuditService>(job =>
-                job.LogAsync(
-                    user.Id,
-                    user.CompanyId!.Value,
-                    AuditAction.Update,
-                    "Email confirmed"
-                ),
-                "audit"
-            );
-
-            _jobqueue.Enqueue<IMailerService>(job =>
-                job.SendEmailAsync(
-                    user.Email!,
-                    "Email confirmed",
-                    $"Hello {user.FirstName},\n\n" +
-                    $"Your email has been successfully confirmed.\n\n" +
-                    $"You can now access your dashboard."
-                ),
-                "email"
-            );
+            _jobqueue.EnqueueAudit(user.Id, user.CompanyId!.Value, AuditAction.Update, "Email confirmed");
+            _jobqueue.EnqueueEmail(user.Email!, "Email confirmed",
+                $"Hello {user.FirstName},\n\nYour email has been successfully confirmed.\nYou can now access your dashboard.");
+            _jobqueue.EnqueueCloudWatchAudit($"User {user.Id} ({user.Email}) confirmed email for Company {user.CompanyId}");
 
             return Result<string>.SuccessResponse("Email confirmed successfully");
         }
+
 
         public async Task<Result<string>> UpdateUser(Guid userId, UpdateUserDto dto)
         {
@@ -257,6 +223,7 @@ namespace IMS.Application.Services
                     return Result<string>.FailureResponse(string.Join("; ", result.Errors.Select(e => e.Description)));
 
                 _jobqueue.EnqueueAudit(userId, user.CompanyId!.Value, AuditAction.Update, $"User {user.Email} updated.");
+                _jobqueue.EnqueueCloudWatchAudit($"User {user.Id} ({user.Email}) updated in Company {user.CompanyId}");
 
                 _cache.Remove($"UserById{userId}");
                 _logger.LogInformation("User {UserId} updated", userId);
@@ -289,6 +256,7 @@ namespace IMS.Application.Services
 
                 _jobqueue.EnqueueAudit(user.Id, companyId, AuditAction.Invalidate, $"User {user.Email} removed from company");
                 _jobqueue.EnqueueEmail(user.Email!, "Access Revoked", "You have been removed from your company and can no longer log in.");
+                _jobqueue.EnqueueCloudWatchAudit($"User {user.Id} ({user.Email}) removed from Company {companyId}");
 
                 _cache.Remove($"UserById{userId}");
                 _cache.Remove($"company:{companyId}:users");
@@ -312,6 +280,8 @@ namespace IMS.Application.Services
             await _userManager.UpdateAsync(user);
 
             _jobqueue.EnqueueAudit(user.Id, user.CompanyId!.Value, AuditAction.Logout, "User logged out");
+            _jobqueue.EnqueueCloudWatchAudit($"User {user.Id} ({user.Email}) logged out from Company {user.CompanyId}");
+
             _logger.LogInformation("User {UserId} logged out", userId);
 
             return Result<string>.SuccessResponse("Logged out successfully");
@@ -333,6 +303,9 @@ namespace IMS.Application.Services
                         AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10),
                         SlidingExpiration = TimeSpan.FromMinutes(2)
                     });
+
+                    _jobqueue.EnqueueAudit(user.Id, user.CompanyId!.Value, AuditAction.Read, $"Fetched user {user.Email} by ID");
+                    _jobqueue.EnqueueCloudWatchAudit($"User {user.Id} ({user.Email}) fetched by ID from Company {user.CompanyId}");
 
                     return Result<UserDto>.SuccessResponse(dto);
                 }
@@ -370,6 +343,9 @@ namespace IMS.Application.Services
                         SlidingExpiration = TimeSpan.FromMinutes(2)
                     });
 
+                    _jobqueue.EnqueueAudit(Guid.Empty, companyId, AuditAction.Read, $"Fetched {users.Count} users for company {companyId}");
+                    _jobqueue.EnqueueCloudWatchAudit($"Fetched {users.Count} users for Company {companyId}");
+
                     return Result<List<UserDto>>.SuccessResponse(users);
                 }
 
@@ -378,6 +354,8 @@ namespace IMS.Application.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error fetching users for company {CompanyId}", companyId);
+                _jobqueue.EnqueueAudit(Guid.Empty, companyId, AuditAction.Error, $"Error fetching users for company {companyId}: {ex.Message}");
+                _jobqueue.EnqueueCloudWatchAudit($"Error fetching users for Company {companyId}: {ex.Message}");
                 return Result<List<UserDto>>.FailureResponse("Failed to fetch users");
             }
         }
@@ -399,6 +377,7 @@ namespace IMS.Application.Services
 
             _jobqueue.EnqueueAudit(userId, user.CompanyId!.Value, AuditAction.Update, $"Role {role} added to user {user.Email}.");
             _jobqueue.EnqueueEmail(user.Email!, "Role Updated!", $"Hello,\n\nYour role has been updated to: {role}.");
+            _jobqueue.EnqueueCloudWatchAudit($"Role {role} added to User {user.Id} ({user.Email}) in Company {user.CompanyId}");
 
             _cache.Remove($"UserById{userId}");
             _logger.LogInformation("Role {Role} added to user {UserId}", role, userId);
@@ -422,6 +401,7 @@ namespace IMS.Application.Services
                 return Result<string>.FailureResponse(string.Join("; ", result.Errors.Select(e => e.Description)));
 
             _jobqueue.EnqueueAudit(userId, user.CompanyId!.Value, AuditAction.Update, $"Profile image updated for user {user.Email}.");
+            _jobqueue.EnqueueCloudWatchAudit($"Profile image updated for User {user.Id} ({user.Email}) in Company {user.CompanyId}");
 
             _cache.Remove($"UserById{userId}");
             _logger.LogInformation("Profile image updated for user {UserId}", userId);
@@ -440,12 +420,14 @@ namespace IMS.Application.Services
 
             _jobqueue.EnqueueAudit(user.Id, user.CompanyId!.Value, AuditAction.Update, "Password updated successfully");
             _jobqueue.EnqueueEmail(user.Email!, "Password Updated", "Hello,\n\nYour account password has been successfully updated.");
+            _jobqueue.EnqueueCloudWatchAudit($"Password updated for User {user.Id} ({user.Email}) in Company {user.CompanyId}");
 
             _cache.Remove($"UserById{userId}");
             _logger.LogInformation("Password updated for user {UserId}", userId);
 
             return Result<string>.SuccessResponse("Password updated successfully");
         }
+
     }
 }
 #endregion

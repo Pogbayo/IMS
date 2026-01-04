@@ -62,9 +62,10 @@ namespace IMS.Application.Services
                 return Result<string>.FailureResponse("Supplier ID cannot be empty.");
             }
 
+            var supplier = await _context.Suppliers.FindAsync(supplierId);
+
             try
             {
-                var supplier = await _context.Suppliers.FindAsync(supplierId);
 
                 var userId = _currentUserService.GetCurrentUserId();
                 var companyId = await GetCurrentUserCompanyIdAsync();
@@ -79,7 +80,7 @@ namespace IMS.Application.Services
 
                     _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Delete,
                         $"Failed delete attempt: Supplier {supplierId} not found.");
-
+                    _jobqueue.EnqueueCloudWatchAudit($"User:{userId} in Company:{companyId} Failed delete attempt: Supplier {supplierId} not found. ");
                     return Result<string>.FailureResponse("Supplier not found.");
                 }
 
@@ -106,6 +107,7 @@ namespace IMS.Application.Services
                 _jobqueue.EnqueueEmail(supplier.Email, "Notice of Removal", body);
                 _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Delete,
                     $"Supplier '{supplier.Name}' (ID: {supplier.Id}) deleted by User {userId}");
+                _jobqueue.EnqueueCloudWatchAudit($"Supplier '{supplier.Name}' (ID: {supplier.Id}) deleted by User {userId} in company: {companyId}");
 
                 _logger.LogInformation("Supplier '{SupplierName}' (ID {SupplierId}) successfully deleted.", supplier.Name, supplier.Id);
 
@@ -115,12 +117,22 @@ namespace IMS.Application.Services
             {
                 _logger.LogError(ex, "Unexpected error occurred while deleting Supplier {SupplierId}", supplierId);
                 var companyId = await GetCurrentUserCompanyIdAsync();
+                var userId = _currentUserService.GetCurrentUserId();
 
-                _jobqueue.EnqueueAudit(_currentUserService.GetCurrentUserId(), companyId, AuditAction.Error,
-                    $"DeleteSupplier exception for Supplier {supplierId}");
+                _jobqueue.EnqueueAudit(
+                    userId,
+                    companyId,
+                    AuditAction.Error,
+                    $"DeleteSupplier exception for Supplier {supplierId}. Error: {ex.Message}"
+                );
+
+                _jobqueue.EnqueueCloudWatchAudit(
+                    $"Failed to delete Supplier '{supplier?.Name}' (ID: {supplierId}) by User {userId} in Company {companyId}. Error: {ex.Message}"
+                );
 
                 return Result<string>.FailureResponse("Error deleting supplier.");
             }
+
         }
 
         public async Task<Result<List<SupplierDto>>> GetAllSuppliers()
@@ -137,6 +149,8 @@ namespace IMS.Application.Services
                     _logger.LogWarning("GetAllSuppliers failed: CompanyId missing.");
 
                     _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, "GetAllSuppliers failed: empty CompanyId.");
+                    _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to fetch suppliers with empty CompanyId.");
+
                     return Result<List<SupplierDto>>.FailureResponse("Company ID is required.");
                 }
 
@@ -157,9 +171,7 @@ namespace IMS.Application.Services
                         })
                         .ToListAsync();
 
-                    if (list.Count() == 0)
-                        return null; 
-
+                    if (!list.Any()) return null;
                     return list;
                 });
 
@@ -168,12 +180,15 @@ namespace IMS.Application.Services
                     _logger.LogInformation("No suppliers found for CompanyId {CompanyId}.", companyId);
 
                     _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, "No suppliers found.");
+                    _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to fetch suppliers but none were found for Company {companyId}.");
+
                     return Result<List<SupplierDto>>.FailureResponse("No suppliers found.");
                 }
 
                 _logger.LogInformation("Retrieved {Count} suppliers for CompanyId {CompanyId}.", suppliers.Count, companyId);
 
                 _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Retrieved {suppliers.Count} suppliers.");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} retrieved {suppliers.Count} suppliers for Company {companyId}.");
 
                 return Result<List<SupplierDto>>.SuccessResponse(suppliers);
             }
@@ -181,8 +196,11 @@ namespace IMS.Application.Services
             {
                 _logger.LogError(ex, "Unexpected error occurred in GetAllSuppliers.");
                 var companyId = await GetCurrentUserCompanyIdAsync();
-                _jobqueue.EnqueueAudit(_currentUserService.GetCurrentUserId(), companyId, AuditAction.Failed,
+                var userId = _currentUserService.GetCurrentUserId();
+
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Error,
                     "GetAllSuppliers threw an exception.");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} encountered an exception fetching suppliers for Company {companyId}: {ex.Message}");
 
                 return Result<List<SupplierDto>>.FailureResponse("Error fetching suppliers.");
             }
@@ -224,28 +242,28 @@ namespace IMS.Application.Services
                 _cache.RemoveByPrefix($"Suppliers_{companyId}_");
 
                 var body = $@"
-                    Hello {supplier.Name},
+            Hello {supplier.Name},
 
-                    Welcome to {company.Name}! 🎉
+            Welcome to {company.Name}! 🎉
 
-                    Your supplier account has been successfully registered with our system. 
-                    You can now access our platform to manage your products, orders, and communications with {company.Name}.
+            Your supplier account has been successfully registered with our system. 
+            You can now access our platform to manage your products, orders, and communications with {company.Name}.
 
-                    If you have any questions or need assistance, please feel free to reach out to our support team at {company.Email}.
+            If you have any questions or need assistance, please feel free to reach out to our support team at {company.Email}.
 
-                    Thank you for joining us!
+            Thank you for joining us!
 
-                    Best regards,
-                    The {company.Name} Team
-                    ";
+            Best regards,
+            The {company.Name} Team
+        ";
 
                 _jobqueue.EnqueueEmail(supplier.Email!, "Company Registration!", body);
-              
 
                 var userId = _currentUserService.GetCurrentUserId();
 
                 _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Create,
                     $"Supplier '{supplier.Name}' was created by user {userId}");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} created supplier '{supplier.Name}' (ID: {supplier.Id}) for Company {companyId}");
 
                 _logger.LogInformation("Supplier registration completed successfully for {SupplierName}", dto.Name);
                 return Result<string>.SuccessResponse("Supplier created successfully");
@@ -253,7 +271,14 @@ namespace IMS.Application.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "An unknown error occurred while registering supplier {SupplierName} to company ID {CompanyId}", dto.Name, companyId);
-                throw new Exception("An unknown error occurred while registering Supplier to the Company", ex);
+
+                var userId = _currentUserService.GetCurrentUserId();
+
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Error,
+                    $"RegisterSupplierToCompany encountered an exception for Supplier '{dto.Name}'");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} failed to register supplier '{dto.Name}' for Company {companyId}: {ex.Message}");
+
+                return Result<string>.FailureResponse("An unknown error occurred while registering Supplier to the Company");
             }
         }
 
@@ -285,14 +310,19 @@ namespace IMS.Application.Services
                 var userId = _currentUserService.GetCurrentUserId();
                 _jobqueue.EnqueueAudit(userId, supplier.CompanyId, AuditAction.Update,
                     $"Supplier {supplier.Name} (ID: {supplier.Id}) was updated by {userId}");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} updated supplier '{supplier.Name}' (ID: {supplier.Id}) for Company {supplier.CompanyId}");
 
                 return Result<string>.SuccessResponse("Supplier updated successfully.");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error updating supplier with ID {SupplierId}", dto.Id);
-                _jobqueue.EnqueueAudit(_currentUserService.GetCurrentUserId(), Guid.Empty, AuditAction.Error,
+                var userId = _currentUserService.GetCurrentUserId();
+
+                _jobqueue.EnqueueAudit(userId, Guid.Empty, AuditAction.Error,
                     $"UpdateSupplier encountered an exception for Supplier {dto.Id}");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} encountered an exception updating Supplier {dto.Id}: {ex.Message}");
+
                 return Result<string>.FailureResponse("An error occurred while updating the supplier.");
             }
         }
@@ -315,6 +345,8 @@ namespace IMS.Application.Services
                     _logger.LogWarning("GetSupplierByName failed: CompanyId missing.");
                     _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read,
                         "GetSupplierByName failed: empty CompanyId.");
+                    _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to fetch supplier with empty CompanyId.");
+
                     return Result<SupplierDto>.FailureResponse("Company ID is required.");
                 }
 
@@ -341,29 +373,32 @@ namespace IMS.Application.Services
                     _logger.LogInformation("No supplier found with name '{Name}' in CompanyId {CompanyId}.", name, companyId);
                     _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read,
                         $"No supplier found with name '{name}'.");
+                    _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to fetch supplier '{name}' but none found for Company {companyId}.");
+
                     return Result<SupplierDto>.FailureResponse("Supplier not found.");
                 }
 
                 _logger.LogInformation("Supplier '{Name}' retrieved successfully for CompanyId {CompanyId}.", name, companyId);
                 _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read,
                     $"Supplier '{name}' retrieved successfully.");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} retrieved supplier '{name}' (ID: {supplier.Id}) for Company {companyId}.");
 
                 return Result<SupplierDto>.SuccessResponse(supplier);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error retrieving supplier by name '{Name}'.", name);
-
                 var companyId = await GetCurrentUserCompanyIdAsync();
+                var userId = _currentUserService.GetCurrentUserId();
 
-                _jobqueue.EnqueueAudit(userId: _currentUserService.GetCurrentUserId(),
-                    companyId,
-                    AuditAction.Error,
+                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Error,
                     $"GetSupplierByName error for supplier '{name}'");
+                _jobqueue.EnqueueCloudWatchAudit($"User {userId} encountered an error fetching supplier '{name}' for Company {companyId}: {ex.Message}");
 
                 return Result<SupplierDto>.FailureResponse("Error fetching supplier.");
             }
         }
+
 
     }
 }

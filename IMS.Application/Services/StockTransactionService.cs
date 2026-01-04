@@ -131,6 +131,7 @@ namespace IMS.Application.Services
 
                _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read,
                     $"User: {userId} fetched Inventory Movements in the Company");
+                _jobqueue.EnqueueCloudWatchAudit($"User: {userId} fetched Inventory Movements in the Company");
 
                 return transactionDtos;
             });
@@ -245,6 +246,8 @@ namespace IMS.Application.Services
                     _jobqueue.EnqueueAudit(userId, dto.CompanyId, AuditAction.Create,
                         $"{userId} created a log for the following transaction");
 
+                    _jobqueue.EnqueueCloudWatchAudit($"{userId} created a log for the following transaction");
+                    
                     // Invalidtae cache for this company
                     _cache.RemoveByPrefix($"StockTransactions_{dto.CompanyId}_");
 

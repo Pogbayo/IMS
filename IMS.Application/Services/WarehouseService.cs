@@ -90,17 +90,16 @@ namespace IMS.Application.Services
             try
             {
                 var userId = _currentUserService.GetCurrentUserId();
-
                 _jobqueue.EnqueueAudit(
-                           userId,
-                           dto.CompanyId,
-                           AuditAction.Create,
-                           $"Warehouse '{dto.Name}' registered with admin '{dto.CompanyId}'."
-                       );
+                    userId,
+                    dto.CompanyId,
+                    AuditAction.Create,
+                    $"Warehouse '{dto.Name}' registered with admin '{dto.CompanyId}'."
+                );
+                _jobqueue.EnqueueCloudWatchAudit($"Warehouse '{dto.Name}' created for Company {dto.CompanyId} by User {userId}");
             }
             catch { }
 
-            // Invalidate cache for company warehouses
             _cache.RemoveByPrefix($"warehouses_company_{dto.CompanyId}");
 
             return Result<Guid>.SuccessResponse(warehouse.Id);
@@ -122,8 +121,11 @@ namespace IMS.Application.Services
                 var companyId = await GetCurrentUserCompanyIdAsync();
 
                 if (companyId.HasValue)
+                {
                     _jobqueue.EnqueueAudit(userId, companyId.Value, AuditAction.Delete,
                         $"Warehouse '{warehouse.Name}' marked as deleted");
+                    _jobqueue.EnqueueCloudWatchAudit($"Warehouse '{warehouse.Name}' deleted by User {userId} in Company {companyId}");
+                }
 
                 _cache.Remove($"warehouse_{warehouse.Id}");
                 _cache.RemoveByPrefix($"warehouses_company_{companyId}");
@@ -163,8 +165,11 @@ namespace IMS.Application.Services
             var userId = _currentUserService.GetCurrentUserId();
             var companyId = await GetCurrentUserCompanyIdAsync();
             if (companyId.HasValue)
+            {
                 _jobqueue.EnqueueAudit(userId, companyId.Value, AuditAction.Read,
                     $"Fetched warehouse with ID {warehouseId}");
+                _jobqueue.EnqueueCloudWatchAudit($"Fetched warehouse {warehouseId} by User {userId} in Company {companyId}");
+            }
 
             return Result<WarehouseDto>.SuccessResponse(warehouse);
         }
@@ -198,9 +203,11 @@ namespace IMS.Application.Services
             var userId = _currentUserService.GetCurrentUserId();
             _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read,
                 $"Fetched warehouses for company ID {companyId}, page {pageNumber}");
+            _jobqueue.EnqueueCloudWatchAudit($"Fetched {warehouses.Count} warehouses for Company {companyId} by User {userId}");
 
             return Result<List<WarehouseDto>>.SuccessResponse(warehouses);
         }
+
 
         public async Task<Result<List<WarehouseDto>>> GetWarehousesContainingProduct(Guid productId)
         {
@@ -233,6 +240,8 @@ namespace IMS.Application.Services
                 _jobqueue.EnqueueAudit(userId, companyId.Value, AuditAction.Read,
                     $"Fetched warehouses containing product ID {productId}");
 
+            _jobqueue.EnqueueCloudWatchAudit($"Fetched {warehouses.Count} warehouses containing Product {productId} by User {userId}");
+
             return Result<List<WarehouseDto>>.SuccessResponse(warehouses);
         }
 
@@ -253,6 +262,8 @@ namespace IMS.Application.Services
                 if (companyId.HasValue)
                     _jobqueue.EnqueueAudit(userId, companyId.Value, AuditAction.Update,
                         $"Warehouse '{warehouse.Name}' marked as active");
+
+                _jobqueue.EnqueueCloudWatchAudit($"Warehouse '{warehouse.Name}' marked active by User {userId} in Company {companyId}");
 
                 _cache.Remove($"warehouse_{warehouse.Id}");
                 _cache.RemoveByPrefix($"warehouses_company_{companyId}");
@@ -282,6 +293,8 @@ namespace IMS.Application.Services
                 if (companyId.HasValue)
                     _jobqueue.EnqueueAudit(userId, companyId.Value, AuditAction.Update,
                         $"Warehouse '{warehouse.Name}' marked as inactive");
+
+                _jobqueue.EnqueueCloudWatchAudit($"Warehouse '{warehouse.Name}' marked inactive by User {userId} in Company {companyId}");
 
                 _cache.Remove($"warehouse_{warehouse.Id}");
                 _cache.RemoveByPrefix($"warehouses_company_{companyId}");
@@ -317,6 +330,8 @@ namespace IMS.Application.Services
                     _jobqueue.EnqueueAudit(userId, companyId.Value, AuditAction.Update,
                         $"Warehouse '{warehouse.Name}' updated successfully");
 
+                _jobqueue.EnqueueCloudWatchAudit($"Warehouse '{warehouse.Name}' updated by User {userId} in Company {companyId}");
+
                 _cache.Remove($"warehouse_{warehouse.Id}");
                 _cache.RemoveByPrefix($"warehouses_company_{companyId}");
             }
@@ -331,5 +346,6 @@ namespace IMS.Application.Services
 
             return Result<string>.SuccessResponse("Warehouse updated successfully");
         }
+
     }
 }
