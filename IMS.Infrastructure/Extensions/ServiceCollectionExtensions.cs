@@ -1,6 +1,8 @@
-﻿using IMS.Application.Interfaces;
+﻿using Amazon.SimpleEmail;
+using IMS.Application.Interfaces;
 using IMS.Application.Settings;
 using IMS.Domain.Entities;
+using IMS.Infrastructure.AWS_SES;
 using IMS.Infrastructure.CloudWatch;
 using IMS.Infrastructure.DBSeeder;
 using IMS.Infrastructure.Mailer;
@@ -10,6 +12,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace IMS.Infrastructure.Extensions
 {
@@ -40,6 +43,19 @@ namespace IMS.Infrastructure.Extensions
             .AddDefaultTokenProviders();
 
             services.Configure<AwsSettings>(configuration.GetSection("AWS"));
+
+            services.AddScoped<IAmazonSimpleEmailService>(sp =>
+            {
+                var settings = sp.GetRequiredService<IOptions<AwsSettings>>().Value;
+
+                return new AmazonSimpleEmailServiceClient(
+                    settings.AccessKeyId,
+                    settings.SecretAccessKey,
+                    Amazon.RegionEndpoint.GetBySystemName(settings.Region)
+                );
+            });
+
+            services.AddScoped<ISimpleEmailService, SimpleEmailService>();
             services.AddSingleton<ICloudWatchLogger, CloudWatchLogger>();
             services.Configure<CloudinarySettings>(configuration.GetSection("CloudinarySettings"));
             services.Configure<JwtSetting>(configuration.GetSection("Jwt"));

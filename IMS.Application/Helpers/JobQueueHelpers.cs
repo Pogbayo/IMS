@@ -41,5 +41,15 @@ namespace IMS.Application.Helpers
                 ), "email");
             }
         }
+        public static void EnqueueAWS_Ses(this IJobQueue jobqueue, string subject, string body)
+        {
+            if (!string.IsNullOrWhiteSpace(subject) && !string.IsNullOrWhiteSpace(body))
+            {
+                jobqueue.Enqueue<ISimpleEmailService>(job => job.SendEmailAsync(
+                    subject,
+                    body
+                ), "email");
+            }
+        }
     }
 }

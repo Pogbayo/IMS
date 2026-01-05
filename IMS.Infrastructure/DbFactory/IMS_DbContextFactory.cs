@@ -11,10 +11,9 @@ namespace IMS.Infrastructure.DbFactory
         {
             var configuration = new ConfigurationBuilder()
                 .SetBasePath(Directory.GetCurrentDirectory())
-                .AddUserSecrets("8a19281a-c644-401a-af27-ec36cfb657ce") // <-- copy from your .csproj of IMS.API
+                .AddUserSecrets("8a19281a-c644-401a-af27-ec36cfb657ce") 
                 .Build();
 
-            // Get the connection string
             var connectionString = configuration.GetConnectionString("DefaultConnection");
 
             var optionsBuilder = new DbContextOptionsBuilder<IMS_DbContext>();

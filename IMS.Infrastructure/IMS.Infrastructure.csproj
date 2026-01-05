@@ -14,6 +14,7 @@
   <ItemGroup>
     <!-- EF Core 9 -->
     <PackageReference Include="AWSSDK.CloudWatchLogs" Version="4.0.14" />
+    <PackageReference Include="AWSSDK.SimpleEmail" Version="4.0.2.8" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.0">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
