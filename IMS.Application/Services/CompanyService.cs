@@ -125,8 +125,8 @@ namespace IMS.Application.Services
                     _jobqueue.EnqueueAudit(Admin.Id, company.Id, AuditAction.Create, $"Company '{company.Name}' registered with admin '{Admin.Email}'.");
                     _jobqueue.EnqueueCloudWatchAudit($"Company '{company.Name}' registered with admin '{Admin.Email}'.");
 
-                    _jobqueue.EnqueueEmail(Admin.Email, "Welcome!", $"Hi {Admin.FirstName}, InvManager welcomes you on board.");
-                    _jobqueue.EnqueueAWS_Ses("Welcome!", $"Hi {Admin.FirstName}, InvManager welcomes you on board.");
+                    //_jobqueue.EnqueueEmail(Admin.Email, "Welcome!", $"Hi {Admin.FirstName}, InvManager welcomes you on board.");
+                    _jobqueue.EnqueueAWS_Ses(new List<string> { Admin.Email},"Welcome!", $"Hi {Admin.FirstName}, InvManager welcomes you on board.");
                 }
                 catch (Exception ex)
                 {
@@ -192,7 +192,8 @@ namespace IMS.Application.Services
                     user.Tokenversion++;
                     _jobqueue.EnqueueAudit(user.Id, company.Id, AuditAction.Invalidate, $"{user.FirstName} has been invalidated");
                     _jobqueue.EnqueueCloudWatchAudit($"User {user.Id} invalidated due to company deletion {companyId}");
-                    _jobqueue.EnqueueEmail(user.Email!, "IMPORTANT NOTICE!!!!", $"Dear Customer, we are sorry to inform you that your account has been invalidated because company {company.Name} was deleted.");
+                    //_jobqueue.EnqueueEmail(user.Email!, "IMPORTANT NOTICE!!!!", $"Dear Customer, we are sorry to inform you that your account has been invalidated because company {company.Name} was deleted.");
+                    _jobqueue.EnqueueAWS_Ses(new List<string> { user.Email! }, "IMPORTANT NOTICE!!!!", $"Dear Customer, we are sorry to inform you that your account has been invalidated because company {company.Name} was deleted.");
                 }
 
                 company.MarkAsDeleted();

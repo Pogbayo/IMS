@@ -13,19 +13,22 @@ namespace IMS.Infrastructure.AWS_SES
             _sesClient = sesClient;
         }
 
-        public async Task<bool> SendEmailAsync(string subject, string body)
+        public async Task<bool> SendEmailAsync(List<string> emailRecipients,string subject, string body)
         {
+
+            var fromEmail = "noreply@tech-expert-beta.com.ng";
+            var displayName = "InvManager";
+
+            var formattedSource = $"{displayName} <{fromEmail}>";
+
             var sendRequest = new SendEmailRequest
             {
-                Source = "declanspag06@gmail.com",
+                Source = formattedSource,
                 Destination = new Destination
                 {
-                    ToAddresses = new List<string>
-                    {
-                        "adebayooluwasegun335@gmail.com",
-                        "brianchima22@gmail.com"
-                    }
+                    ToAddresses = emailRecipients
                 },
+
                 Message = new Message
                 {
                     Subject = new Content(subject),

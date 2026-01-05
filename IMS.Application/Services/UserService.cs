@@ -89,8 +89,8 @@ namespace IMS.Application.Services
                 _cache.Remove($"company:{dto.CompanyId}:users");
 
                 _jobqueue.EnqueueAudit(user.Id, dto.CompanyId, AuditAction.Create, $"User {user.Email} added to company.");
-                _jobqueue.EnqueueEmail(user.Email, "You have been added to a company",
-                    $"Hello,\n\nYou have been added to the company: {dto.CompanyId}. You can now log in using your credentials.");
+                //_jobqueue.EnqueueEmail(user.Email, "You have been added to a company",$"Hello,\n\nYou have been added to the company: {dto.CompanyId}. You can now log in using your credentials.");
+                _jobqueue.EnqueueAWS_Ses(new List<string> { user.Email }, "You have been added to a company",$"Hello,\n\nYou have been added to the company: {dto.CompanyId}. You can now log in using your credentials.");
                 _jobqueue.EnqueueCloudWatchAudit($"User {user.Id} ({user.Email}) added to Company {dto.CompanyId}.");
 
                 _logger.LogInformation("User {UserName} created successfully for company {CompanyId}", dto.UserName, dto.CompanyId);
@@ -152,8 +152,8 @@ namespace IMS.Application.Services
             _logger.LogInformation("User {UserId} logged in", user.Id);
 
             _jobqueue.EnqueueAudit(user.Id, user.CompanyId!.Value, AuditAction.Login, $"{user.FirstName} logged in.");
-            _jobqueue.EnqueueEmail(user.Email!, $"Welcome back {user.FirstName}",
-                $"Hello {user.FirstName},\n\nWe're happy to see you back! You can now continue using your account.\n\nBest regards,\nYour Company Team");
+            //_jobqueue.EnqueueEmail(user.Email!, $"Welcome back {user.FirstName}",$"Hello {user.FirstName},\n\nWe're happy to see you back! You can now continue using your account.\n\nBest regards,\nYour Company Team");
+            _jobqueue.EnqueueAWS_Ses(new List<string> { user.Email! }, $"Welcome back {user.FirstName}",$"Hello {user.FirstName},\n\nWe're happy to see you back! You can now continue using your account.\n\nBest regards,\nYour Company Team");
             _jobqueue.EnqueueCloudWatchAudit($"User {user.Id} ({user.Email}) logged in to Company {user.CompanyId}.");
 
             return Result<LoginResponseDto>.SuccessResponse(response, "Login successful.");
@@ -173,8 +173,8 @@ namespace IMS.Application.Services
 
             var confirmUrl = $"https://frontend.com/confirm-email?userId={user.Id}&token={encodedToken}";
 
-            _jobqueue.EnqueueEmail(user.Email!, "Confirm your email",
-                $"Hello {user.FirstName},\n\nPlease confirm your email by clicking the link below:\n{confirmUrl}\n\nIf you did not request this, please ignore this email.");
+            //_jobqueue.EnqueueEmail(user.Email!, "Confirm your email",$"Hello {user.FirstName},\n\nPlease confirm your email by clicking the link below:\n{confirmUrl}\n\nIf you did not request this, please ignore this email.");
+            _jobqueue.EnqueueAWS_Ses(new List<string> { user.Email! }, "Confirm your email",$"Hello {user.FirstName},\n\nPlease confirm your email by clicking the link below:\n{confirmUrl}\n\nIf you did not request this, please ignore this email.");
             _jobqueue.EnqueueAudit(user.Id, user.CompanyId!.Value, AuditAction.Create, "Email confirmation link sent");
             _jobqueue.EnqueueCloudWatchAudit($"Confirmation link sent to user {user.Id} ({user.Email}) for Company {user.CompanyId}");
 
@@ -200,8 +200,8 @@ namespace IMS.Application.Services
             await _context.SaveChangesAsync();
 
             _jobqueue.EnqueueAudit(user.Id, user.CompanyId!.Value, AuditAction.Update, "Email confirmed");
-            _jobqueue.EnqueueEmail(user.Email!, "Email confirmed",
-                $"Hello {user.FirstName},\n\nYour email has been successfully confirmed.\nYou can now access your dashboard.");
+            _jobqueue.EnqueueAWS_Ses(new List<string> { user.Email! }, "Email confirmed",$"Hello {user.FirstName},\n\nYour email has been successfully confirmed.\nYou can now access your dashboard.");
+            //_jobqueue.EnqueueEmail( user.Email! , "Email confirmed",$"Hello {user.FirstName},\n\nYour email has been successfully confirmed.\nYou can now access your dashboard.");
             _jobqueue.EnqueueCloudWatchAudit($"User {user.Id} ({user.Email}) confirmed email for Company {user.CompanyId}");
 
             return Result<string>.SuccessResponse("Email confirmed successfully");
@@ -255,7 +255,8 @@ namespace IMS.Application.Services
                     return Result<string>.FailureResponse(string.Join("; ", result.Errors.Select(e => e.Description)));
 
                 _jobqueue.EnqueueAudit(user.Id, companyId, AuditAction.Invalidate, $"User {user.Email} removed from company");
-                _jobqueue.EnqueueEmail(user.Email!, "Access Revoked", "You have been removed from your company and can no longer log in.");
+                //_jobqueue.EnqueueEmail(user.Email!, "Access Revoked", "You have been removed from your company and can no longer log in.");
+                _jobqueue.EnqueueAWS_Ses(new List<string> { user.Email! }, "Access Revoked", "You have been removed from your company and can no longer log in.");
                 _jobqueue.EnqueueCloudWatchAudit($"User {user.Id} ({user.Email}) removed from Company {companyId}");
 
                 _cache.Remove($"UserById{userId}");
@@ -376,7 +377,8 @@ namespace IMS.Application.Services
                 return Result<string>.FailureResponse(string.Join("; ", result.Errors.Select(e => e.Description)));
 
             _jobqueue.EnqueueAudit(userId, user.CompanyId!.Value, AuditAction.Update, $"Role {role} added to user {user.Email}.");
-            _jobqueue.EnqueueEmail(user.Email!, "Role Updated!", $"Hello,\n\nYour role has been updated to: {role}.");
+            //_jobqueue.EnqueueEmail(user.Email!, "Role Updated!", $"Hello,\n\nYour role has been updated to: {role}.");
+            _jobqueue.EnqueueAWS_Ses(new List<string> { user.Email! }, "Role Updated!", $"Hello,\n\nYour role has been updated to: {role}.");
             _jobqueue.EnqueueCloudWatchAudit($"Role {role} added to User {user.Id} ({user.Email}) in Company {user.CompanyId}");
 
             _cache.Remove($"UserById{userId}");
@@ -419,7 +421,8 @@ namespace IMS.Application.Services
                 return Result<string>.FailureResponse(string.Join("; ", result.Errors.Select(e => e.Description)));
 
             _jobqueue.EnqueueAudit(user.Id, user.CompanyId!.Value, AuditAction.Update, "Password updated successfully");
-            _jobqueue.EnqueueEmail(user.Email!, "Password Updated", "Hello,\n\nYour account password has been successfully updated.");
+            //_jobqueue.EnqueueEmail(user.Email!, "Password Updated", "Hello,\n\nYour account password has been successfully updated.");
+            _jobqueue.EnqueueAWS_Ses(new List<string> { user.Email! }, "Password Updated", "Hello,\n\nYour account password has been successfully updated.");
             _jobqueue.EnqueueCloudWatchAudit($"Password updated for User {user.Id} ({user.Email}) in Company {user.CompanyId}");
 
             _cache.Remove($"UserById{userId}");

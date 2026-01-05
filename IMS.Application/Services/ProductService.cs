@@ -642,7 +642,6 @@ namespace IMS.Application.Services
 
             _logger.LogInformation("Product '{ProductName}' marked as deleted by user {UserId}", product.Name, userId);
 
-            // Clear cache
             _cache.Remove($"Product:{productId}:Summary");
             _cache.Remove($"Product:{productId}:Stock");
             _cache.Remove($"Product:{productId}:Transactions");

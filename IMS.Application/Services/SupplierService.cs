@@ -105,6 +105,7 @@ namespace IMS.Application.Services
                     ";
 
                 _jobqueue.EnqueueEmail(supplier.Email, "Notice of Removal", body);
+                _jobqueue.EnqueueAWS_Ses(new List<string> { supplier.Email }, "Notice of Removal", body);
                 _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Delete,
                     $"Supplier '{supplier.Name}' (ID: {supplier.Id}) deleted by User {userId}");
                 _jobqueue.EnqueueCloudWatchAudit($"Supplier '{supplier.Name}' (ID: {supplier.Id}) deleted by User {userId} in company: {companyId}");
@@ -242,22 +243,23 @@ namespace IMS.Application.Services
                 _cache.RemoveByPrefix($"Suppliers_{companyId}_");
 
                 var body = $@"
-            Hello {supplier.Name},
+                        Hello {supplier.Name},
 
-            Welcome to {company.Name}! 🎉
+                        Welcome to {company.Name}! 🎉
 
-            Your supplier account has been successfully registered with our system. 
-            You can now access our platform to manage your products, orders, and communications with {company.Name}.
+                        Your supplier account has been successfully registered with our system. 
+                        You can now access our platform to manage your products, orders, and communications with {company.Name}.
 
-            If you have any questions or need assistance, please feel free to reach out to our support team at {company.Email}.
+                        If you have any questions or need assistance, please feel free to reach out to our support team at {company.Email}.
 
-            Thank you for joining us!
+                        Thank you for joining us!
 
-            Best regards,
-            The {company.Name} Team
-        ";
+                        Best regards,
+                        The {company.Name} Team
+                    ";
 
                 _jobqueue.EnqueueEmail(supplier.Email!, "Company Registration!", body);
+                _jobqueue.EnqueueAWS_Ses(new List<string> { supplier.Email! }, "Company Registration!", body);
 
                 var userId = _currentUserService.GetCurrentUserId();
 

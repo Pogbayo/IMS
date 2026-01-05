@@ -1,9 +1,7 @@
-﻿
-
-namespace IMS.Application.Interfaces
+﻿namespace IMS.Application.Interfaces
 {
     public interface ISimpleEmailService
     {
-        Task<bool> SendEmailAsync(string subject, string body);
+        Task<bool> SendEmailAsync(List<string> emailRecipients,string subject, string body);
     }
 }
