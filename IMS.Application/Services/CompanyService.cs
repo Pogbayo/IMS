@@ -96,7 +96,9 @@ namespace IMS.Application.Services
                     await transaction.RollbackAsync();
                     var errors = string.Join("; ", identityResult.Errors.Select(e => e.Description));
 
-                    _jobqueue.EnqueueCloudWatchAudit($"Failed company registration attempt for {dto.CompanyEmail}: {errors}");
+                    _jobqueue.EnqueueAudit(Admin.Id, company.Id, AuditAction.Create, $"Failed company registration attempt for {dto.CompanyEmail}: {errors}");
+                    _jobqueue.EnqueueCloudWatchAudit($"{Admin.Id}Failed company registration attempt for {dto.CompanyEmail}: {errors}");
+
                     return Result<CreatedCompanyDto>.FailureResponse(
                         $"User registration failed: {errors}"
                     );
@@ -124,6 +126,7 @@ namespace IMS.Application.Services
                     _jobqueue.EnqueueCloudWatchAudit($"Company '{company.Name}' registered with admin '{Admin.Email}'.");
 
                     _jobqueue.EnqueueEmail(Admin.Email, "Welcome!", $"Hi {Admin.FirstName}, InvManager welcomes you on board.");
+                    _jobqueue.EnqueueAWS_Ses("Welcome!", $"Hi {Admin.FirstName}, InvManager welcomes you on board.");
                 }
                 catch (Exception ex)
                 {
