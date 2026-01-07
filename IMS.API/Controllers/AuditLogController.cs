@@ -42,33 +42,23 @@ namespace IMS.API.Controllers
                 : ErrorResponse(result.Error!, result.Message);
         }
 
-        //[AllowAnonymous]
-        //[HttpGet("test-email")]
-        //public async Task<IActionResult> TestEmail()
-        //{
-        //    await Task.Run(() =>
-        //    {
-        //        _jobqueue.EnqueueEmail(
-        //            "adebayooluwasegun335@gmail.com",
-        //            "SMTP Test",
-        //            "If you see this, SMTP works."
-        //        );
-        //    });
+        [AllowAnonymous]
+        [HttpGet("test-email-with-ses")]
+        public IActionResult TestEmailSes()
+        {
+            _jobqueue.EnqueueAWS_Ses(
+                new List<string>
+                {
+            "asuquoandrew805@gmail.com",
+            "adebayooluwasegun335@gmail.com",
+            "brianchima22@gmail.com",
+            "adebowaleadesanya85@gmail.com"
+                },
+                "Welcome!",
+                "Hi, InvManager welcomes you on board."
+            );
 
-        //    return Ok("Email sent");
-        //}
-
-        //[AllowAnonymous]
-        //[HttpGet("test-email-with-ses")]
-        //public async Task<IActionResult> TestEmailSes()
-        //{
-        //    await _sesMailer.SendEmailAsync(
-        //        "adebayooluwasegun335@gmail.com",
-        //        "SMTP Test"
-        //    );
-
-        //    return Ok("Email sent");
-        //}
-
+            return Ok("Email job queued");
+        }
     }
 }

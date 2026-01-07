@@ -18,6 +18,7 @@ namespace IMS.Application.Services
 {
     public class ProductService : IProductService
     {
+    
         private readonly ILogger<ProductService> _logger;
         private readonly IAppDbContext _context;
         private readonly IJobQueue _jobqueue;

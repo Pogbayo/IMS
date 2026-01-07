@@ -6,7 +6,7 @@ using IMS.API.ModelFilter;
 using IMS.Application.Extensions;
 using IMS.Application.Interfaces;
 using IMS.Domain.Entities;
-using IMS.Infrastructure.DBSeeder;
+//using IMS.Infrastructure.DBSeeder;
 using IMS.Infrastructure.Extensions;
 using IMS.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -184,6 +184,11 @@ var app = builder.Build();
 //    await AdminSeeder.AdminSeeder(config);
 //}
 
+var cloudWatchLogger = app.Services.GetRequiredService<ICloudWatchLogger>();
+
+await cloudWatchLogger.InitializeAsync(); 
+
+
 // recurring jobs
 using (var scope = app.Services.CreateScope())
 {
@@ -202,7 +207,6 @@ if (app.Environment.IsDevelopment())
     });
 }
 
-
 app.UseHttpsRedirection();
 app.UseRouting();
 app.UseAuthentication();
@@ -217,4 +221,4 @@ app.UseRateLimiter();
 app.UseHangfireDashboard("/hangfire");
 // Map controllers 
 app.MapControllers();
-app.Run();
+await app.RunAsync();

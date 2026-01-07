@@ -69,7 +69,7 @@ namespace IMS.Application.Services
                 var company = new Company
                 {
                     Name = dto.CompanyName!,
-                    Email = dto.CompanyEmail!,
+                    CompanyEmail = dto.CompanyEmail!,
                     HeadOffice = dto.HeadOffice!
                 };
 
@@ -116,6 +116,8 @@ namespace IMS.Application.Services
                     throw new InvalidOperationException("Failed to assign Admin role");
 
                 company.CreatedById = Admin.Id;
+                company.Users.Add(Admin);
+
                 await _context.SaveChangesAsync();
 
                 await transaction.CommitAsync();
@@ -141,7 +143,7 @@ namespace IMS.Application.Services
                     Name = company.Name!,
                     FirstName = company.CreatedBy.FirstName,
                     CreatedAt = company.CreatedAt,
-                    CompanyEmail = company.Email,
+                    CompanyEmail = company.CompanyEmail,
                     HeadOffice = company.HeadOffice,
                     AdminEmail = Admin.Email,
                     UpdatedAt = company.UpdatedAt,
@@ -203,6 +205,10 @@ namespace IMS.Application.Services
                 _jobqueue.EnqueueCloudWatchAudit($"Company {companyId} deleted successfully by user {currentUserId}");
 
                 _cache.Remove($"Company_{companyId}");
+                for (int page = 1; page <= 100; page++) 
+                {
+                    _cache.Remove($"Companies_Page{page}_Size{10}");
+                }
 
                 return Result<string>.SuccessResponse("Company deleted successfully");
             }
@@ -264,11 +270,11 @@ namespace IMS.Application.Services
                 {
                     Id = company.Id,
                     Name = company.Name,
-                    CompanyEmail = company.Email,
+                    CompanyEmail = company.CompanyEmail,
                     AdminEmail = company.CreatedBy.Email ?? "Unknown",
                     HeadOffice = company.HeadOffice,
                     CreatedAt = company.CreatedAt,
-                    UpdatedAt = company.UpdatedAt,
+                    LastUpdated = company.UpdatedAt,
                     TotalPurchases = await _companyCalculations.CalculateTotalPurchases(stockTransactions),
                     SalesTrend = await _companyCalculations.CalculateTotalSalesTrend(stockTransactions),
                     TotalSalesPerMonth = await _companyCalculations.TotalSalesPerMonth(stockTransactions),
@@ -303,9 +309,10 @@ namespace IMS.Application.Services
                 return Result<string>.FailureResponse("Company not found");
             }
 
-            company.Name = dto?.Name ?? string.Empty;
-            company.Email = dto?.Email ?? string.Empty;
-            company.HeadOffice = dto?.HeadOffice ?? string.Empty;
+            company.Name = dto?.Name ?? company.Name;
+            company.AdminEmail = dto?.AdminEmail ?? company.AdminEmail;
+            company.HeadOffice = dto?.HeadOffice ?? company.HeadOffice;
+            company.CompanyEmail = dto?.CompanyEmail ?? company.CompanyEmail;
             company.MarkAsUpdated();
 
             await _context.UpdateChangesAsync(company);
@@ -318,42 +325,43 @@ namespace IMS.Application.Services
             return Result<string>.SuccessResponse("Company updated Successfully");
         }
 
-        public async Task<Result<List<CompanyDto>>> GetAllCompanies(int pageSize, int pageNumber)
+        public async Task<Result<List<AllCompaniesDto>>> GetAllCompanies(int pageSize, int pageNumber)
         {
             var cacheKey = $"Companies_Page{pageNumber}_Size{pageSize}";
 
-            var result = await _cache.GetOrCreateAsync<Result<List<CompanyDto>>>(cacheKey, async cacheEntry =>
+            var result = await _cache.GetOrCreateAsync<Result<List<AllCompaniesDto>>>(cacheKey, async cacheEntry =>
             {
                 cacheEntry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10);
 
                 if (pageNumber < 1 || pageSize < 1)
                 {
                     _jobqueue.EnqueueCloudWatchAudit($"Invalid pagination parameters: page {pageNumber}, size {pageSize}");
-                    return Result<List<CompanyDto>>.FailureResponse("PageNumber and PageSize cannot be less than 1");
+                    return Result<List<AllCompaniesDto>>.FailureResponse("PageNumber and PageSize cannot be less than 1");
                 }
 
                 var companies = await _context.Companies
                     .Skip((pageNumber - 1) * pageSize)
                     .Take(pageSize)
-                    .Select(c => new CompanyDto
+                    .Select(c => new AllCompaniesDto
                     {
                         Id = c.Id,
                         Name = c.Name,
-                        CompanyEmail = c.Email,
-                        HeadOffice = c.HeadOffice
+                        CompanyEmail = c.CompanyEmail,
+                        HeadOffice = c.HeadOffice,
+                        AdminEmail = c.AdminEmail!
                     })
                     .ToListAsync();
 
                 if (!companies.Any())
                 {
                     _jobqueue.EnqueueCloudWatchAudit($"User {_currentUserService.GetCurrentUserId()} fetched companies page {pageNumber} but no companies found");
-                    return Result<List<CompanyDto>>.FailureResponse("No companies found");
+                    return Result<List<AllCompaniesDto>>.FailureResponse("No companies found");
                 }
 
                 _jobqueue.EnqueueCloudWatchAudit($"User {_currentUserService.GetCurrentUserId()} fetched companies page {pageNumber} with {companies.Count} results");
 
-                return Result<List<CompanyDto>>.SuccessResponse(companies);
-            }) ?? Result<List<CompanyDto>>.FailureResponse("Failed to fetch companies from cache");
+                return Result<List<AllCompaniesDto>>.SuccessResponse(companies);
+            }) ?? Result<List<AllCompaniesDto>>.FailureResponse("Failed to fetch companies from cache");
 
             return result;
         }

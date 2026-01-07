@@ -9,7 +9,7 @@ namespace IMS.Application.DTO.Company
         public string CompanyEmail { get; set; } = string.Empty;
         public string HeadOffice { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; }
-        public DateTime? UpdatedAt { get; set; }
+        public DateTime? LastUpdated { get; set; }
         public decimal TotalInventoryValue { get; set; }
         public decimal TotalPurchases { get; set; }
         public decimal SalesTrend { get; set; } //How much we made (this moonth)

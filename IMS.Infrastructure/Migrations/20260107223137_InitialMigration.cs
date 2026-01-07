@@ -115,9 +115,10 @@ namespace IMS.Infrastructure.Migrations
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     Name = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    Email = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    CompanyEmail = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     CompanyLine = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     HeadOffice = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    AdminEmail = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     CreatedById = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
                     PhoneNumber = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false),

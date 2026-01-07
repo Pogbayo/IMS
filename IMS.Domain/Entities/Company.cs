@@ -5,9 +5,10 @@ namespace IMS.Domain.Entities
     public class Company : BaseEntity
     {
         public string Name { get; set; } = string.Empty;
-        public string Email { get; set; } = string.Empty;
+        public string CompanyEmail { get; set; } = string.Empty;
         public string CompanyLine { get; set; } = string.Empty;
         public string HeadOffice { get; set; } = string.Empty;
+        public string? AdminEmail { get; set; }
         public Guid? CreatedById { get; set; }
         public string PhoneNumber { get; set; } = string.Empty;
         public AppUser CreatedBy { get; set; } = null!;

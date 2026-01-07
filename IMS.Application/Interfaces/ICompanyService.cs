@@ -8,6 +8,6 @@ namespace IMS.Application.Interfaces
         Task<Result<CompanyDto>> GetCompanyById(Guid companyId);
         Task<Result<string>> UpdateCompany(Guid companyId, CompanyUpdateDto dto);
         Task<Result<string>> DeleteCompany(Guid companyId);
-        Task<Result<List<CompanyDto>>> GetAllCompanies(int PageSize, int PageNumber);
+        Task<Result<List<AllCompaniesDto>>> GetAllCompanies(int PageSize, int PageNumber);
     }
 }

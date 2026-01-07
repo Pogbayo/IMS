@@ -41,8 +41,8 @@ namespace IMS.Application.Services
                 //var totalSalesPerMonth = _companyCalculations.TotalSalesPerMonth(stockTransactions);
 
                 var totalInv = await _companyCalculations.CalculateTotalInventoryValue(warehouses);
-                var topProducts = _companyCalculations.TopProductBySales(stockTransactions);
-                var lowStock = _companyCalculations.GetLowOnStockProducts(productWarehouses);
+                var topProducts = await _companyCalculations.TopProductBySales(stockTransactions);
+                var lowStock = await _companyCalculations.GetLowOnStockProducts(productWarehouses);
 
                 //serilaizing the retiurn objects from the CompanyCalculatiion methods
                 var topProductsJson = JsonSerializer.Serialize(topProducts);

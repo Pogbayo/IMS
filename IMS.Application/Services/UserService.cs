@@ -213,8 +213,11 @@ namespace IMS.Application.Services
             try
             {
                 var user = await _userManager.FindByIdAsync(userId.ToString());
-                if (user == null) return Result<string>.FailureResponse("User not found");
 
+                //Task<AppUser?> task = _userManager.FindByIdAsync(userId.ToString());
+
+                if (user == null) return Result<string>.FailureResponse("User not found");
+               
                 user.Email = dto.Email ?? user.Email;
                 user.UserName = dto.UserName ?? user.UserName;
 

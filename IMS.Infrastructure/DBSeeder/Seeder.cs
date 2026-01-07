@@ -84,7 +84,7 @@ namespace IMS.Infrastructure.DBSeeder
             var company = new Company
             {
                 Name = "Default Company",
-                Email = "info@defaultcompany.com"
+                CompanyEmail = "info@defaultcompany.com"
             };
            _ims.Companies.Add(company);
             _ims.SaveChanges();

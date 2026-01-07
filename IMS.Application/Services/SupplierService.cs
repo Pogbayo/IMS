@@ -71,7 +71,7 @@ namespace IMS.Application.Services
                 var companyId = await GetCurrentUserCompanyIdAsync();
                 var company = await _context.Companies
                     .Where(n => n.Id == companyId)
-                    .Select(n => new { n.Name, n.Email })
+                    .Select(n => new { n.Name, n.CompanyEmail })
                     .FirstOrDefaultAsync();
 
                 if (supplier == null)
@@ -96,7 +96,7 @@ namespace IMS.Application.Services
 
                     This action means you will no longer have access to supplier operations, product management, or communications within the company's platform.
 
-                    If you believe this was done in error or you would like further clarification, please feel free to contact our support team at {company.Email}.
+                    If you believe this was done in error or you would like further clarification, please feel free to contact our support team at {company.CompanyEmail}.
 
                     Thank you for your time with us, and we wish you the best in your future endeavours.
 
@@ -250,7 +250,7 @@ namespace IMS.Application.Services
                         Your supplier account has been successfully registered with our system. 
                         You can now access our platform to manage your products, orders, and communications with {company.Name}.
 
-                        If you have any questions or need assistance, please feel free to reach out to our support team at {company.Email}.
+                        If you have any questions or need assistance, please feel free to reach out to our support team at {company.CompanyEmail}.
 
                         Thank you for joining us!
 

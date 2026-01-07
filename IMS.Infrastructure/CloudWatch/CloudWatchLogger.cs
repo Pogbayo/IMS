@@ -25,7 +25,11 @@ public class CloudWatchLogger : ICloudWatchLogger
 
     // Keeps track of where we left off in the stream
     // AWS needs this to make sure logs stay in order
-    private string _sequenceToken = "";
+    private string? _sequenceToken = null;
+
+    //I am mking use of this to hanlde race conditon on the _sequenceToken
+    private readonly SemaphoreSlim _logSemaphore = new SemaphoreSlim(1, 1);
+
 
     // Constructor gets settings from DI and sets up the AWS client
     public CloudWatchLogger(IOptions<AwsSettings> awsSettings, ILogger<CloudWatchLogger> logger)
@@ -42,10 +46,6 @@ public class CloudWatchLogger : ICloudWatchLogger
             settings.SecretAccessKey,
             RegionEndpoint.GetBySystemName(settings.Region)
         );
-
-        // Make sure the log group and stream exist in AWS
-        // I have to block here with .Wait() because constructors can't be async
-        EnsureLogGroupAndStreamExist().Wait();
     }
 
     // This just checks if the log group and log stream exist
@@ -59,12 +59,12 @@ public class CloudWatchLogger : ICloudWatchLogger
         }
         catch
         {
-            // If it already exists, AWS will throw — ignore that
+            // If it already exists, AWS will throw an error
         }
 
         try
         {
-            // Try to make the file (log stream)
+            //the file (log stream)
             await _client.CreateLogStreamAsync(new CreateLogStreamRequest
             {
                 LogGroupName = _logGroupName,
@@ -86,52 +86,93 @@ public class CloudWatchLogger : ICloudWatchLogger
         }
     }
 
+    public async Task InitializeAsync()
+    {
+        await EnsureLogGroupAndStreamExist();
+    }
+
     // The main method to log stuff to CloudWatch
+    //public async Task LogAsync(string message)
+    //{
+    //    // Make a log event with message + current time
+    //    var logEvent = new InputLogEvent
+    //    {
+    //        Message = message,
+    //        Timestamp = DateTime.UtcNow
+    //    };
+
+    //    // Prepare request to send to AWS
+    //    var request = new PutLogEventsRequest
+    //    {
+    //        LogGroupName = _logGroupName,
+    //        LogStreamName = _logStreamName,
+    //        LogEvents = new List<InputLogEvent> { logEvent },
+    //        SequenceToken = _sequenceToken // must provide token to keep order
+    //    };
+
+    //    try
+    //    {
+    //        // Actually send it
+    //        var response = await _client.PutLogEventsAsync(request);
+
+    //        // Save next token for future logs
+    //        if (!string.IsNullOrEmpty(_sequenceToken))
+    //        {
+    //            request.SequenceToken = _sequenceToken;
+    //        }
+    //        _sequenceToken = response.NextSequenceToken;
+    //    }
+    //    catch (InvalidSequenceTokenException ex)
+    //    {
+    //        // If AWS complains that our token is wrong (maybe someone else wrote to the stream)
+    //        // we grab the latest token and try again
+    //        var describe = await _client.DescribeLogStreamsAsync(new DescribeLogStreamsRequest
+    //        {
+    //            LogGroupName = _logGroupName,
+    //            LogStreamNamePrefix = _logStreamName
+    //        });
+
+    //        _sequenceToken = describe.LogStreams.First().UploadSequenceToken;
+
+    //        // Retry with the updated token
+    //        request.SequenceToken = _sequenceToken;
+    //        var response = await _client.PutLogEventsAsync(request);
+    //        _sequenceToken = response.NextSequenceToken;
+
+    //        // Log the original exception in case we need to debug
+    //        _logger.LogWarning(ex.ToString());
+    //    }
+    //}
+
     public async Task LogAsync(string message)
     {
-        // Make a log event with message + current time
-        var logEvent = new InputLogEvent
-        {
-            Message = message,
-            Timestamp = DateTime.UtcNow
-        };
-
-        // Prepare request to send to AWS
-        var request = new PutLogEventsRequest
-        {
-            LogGroupName = _logGroupName,
-            LogStreamName = _logStreamName,
-            LogEvents = new List<InputLogEvent> { logEvent },
-            SequenceToken = _sequenceToken // must provide token to keep order
-        };
-
+        await _logSemaphore.WaitAsync(); //each thread waits its turn
         try
         {
-            // Actually send it
-            var response = await _client.PutLogEventsAsync(request);
+            var logEvent = new InputLogEvent
+            {
+                Message = message,
+                Timestamp = DateTime.UtcNow
+            };
 
-            // Save next token for future logs
-            _sequenceToken = response.NextSequenceToken;
-        }
-        catch (InvalidSequenceTokenException ex)
-        {
-            // If AWS complains that our token is wrong (maybe someone else wrote to the stream)
-            // we grab the latest token and try again
-            var describe = await _client.DescribeLogStreamsAsync(new DescribeLogStreamsRequest
+            var request = new PutLogEventsRequest
             {
                 LogGroupName = _logGroupName,
-                LogStreamNamePrefix = _logStreamName
-            });
+                LogStreamName = _logStreamName,
+                LogEvents = new List<InputLogEvent> { logEvent }
+            };
 
-            _sequenceToken = describe.LogStreams.First().UploadSequenceToken;
+            if (!string.IsNullOrEmpty(_sequenceToken))
+            {
+                request.SequenceToken = _sequenceToken;
+            }
 
-            // Retry with the updated token
-            request.SequenceToken = _sequenceToken;
             var response = await _client.PutLogEventsAsync(request);
             _sequenceToken = response.NextSequenceToken;
-
-            // Log the original exception in case we need to debug
-            _logger.LogWarning(ex.ToString());
+        }
+        finally
+        {
+            _logSemaphore.Release(); 
         }
     }
 }
