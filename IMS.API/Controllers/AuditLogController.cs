@@ -1,5 +1,4 @@
-﻿using IMS.Application.Helpers;
-using IMS.Application.Interfaces;
+﻿using IMS.Application.Interfaces;
 using IMS.Application.Interfaces.IAudit;
 using IMS.Infrastructure.Mailer;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -18,6 +17,7 @@ namespace IMS.API.Controllers
         private readonly IMailerService _mailerService;
         private readonly ISimpleEmailService _sesMailer;
         private readonly IJobQueue _jobqueue;
+
         public AuditLogController(IJobQueue jobqueue, IAuditService auditService, IMailerService mailerService, ISimpleEmailService sesMailer)
         {
             _jobqueue = jobqueue;
@@ -42,23 +42,12 @@ namespace IMS.API.Controllers
                 : ErrorResponse(result.Error!, result.Message);
         }
 
-        [AllowAnonymous]
-        [HttpGet("test-email-with-ses")]
-        public IActionResult TestEmailSes()
-        {
-            _jobqueue.EnqueueAWS_Ses(
-                new List<string>
-                {
-            "asuquoandrew805@gmail.com",
-            "adebayooluwasegun335@gmail.com",
-            "brianchima22@gmail.com",
-            "adebowaleadesanya85@gmail.com"
-                },
-                "Welcome!",
-                "Hi, InvManager welcomes you on board."
-            );
 
-            return Ok("Email job queued");
+        [HttpGet("ping")]
+        [AllowAnonymous]
+        public IActionResult Ping()
+        {
+            return Ok("pong");
         }
     }
 }

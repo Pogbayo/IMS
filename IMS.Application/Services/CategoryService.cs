@@ -63,7 +63,7 @@ namespace IMS.Application.Services
                 );
 
                 _jobqueue.EnqueueCloudWatchAudit(
-                    $"{userDetails.Data.FirstName} created {category.Name} category"
+                    $"{userDetails.Data.FirstName}: {_currentUser.GetCurrentUserId()} created {category.Name} category"
                 );
 
                 return Result<Guid>.SuccessResponse(category.Id, "Category created successfully");
@@ -130,7 +130,7 @@ namespace IMS.Application.Services
 
                 _logger.LogInformation("Category {CategoryId} deleted successfully", categoryId);
 
-                _jobqueue.EnqueueCloudWatchAudit($"Category {category.Name} ({categoryId}) deleted by user {_currentUser.GetCurrentUserId()}");
+                _jobqueue.EnqueueCloudWatchAudit($"Category {category.Name}: ({categoryId}) deleted by user {_currentUser.GetCurrentUserId()}");
 
                 return Result<string>.SuccessResponse("Category deleted successfully");
             }
@@ -184,6 +184,7 @@ namespace IMS.Application.Services
 
                 var categories = await _context.Categories
                     .AsNoTracking()
+                    .OrderByDescending(x => x.CreatedAt)
                     .Where(c => !c.IsDeleted)
                     .Select(c => new CategoryDto
                     {
@@ -191,6 +192,14 @@ namespace IMS.Application.Services
                         Name = c.Name
                     })
                     .ToListAsync();
+
+
+                if (!categories.Any())
+                {
+                    _jobqueue.EnqueueCloudWatchAudit("No categories found in the database.");
+                    //_jobqueue.EnqueueAudit("No categories found in the database");
+                    _logger.LogWarning("No categories found");
+                }
 
                 _logger.LogInformation("Fetched {Count} categories", categories.Count);
 

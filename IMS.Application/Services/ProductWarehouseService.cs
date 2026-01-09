@@ -1,4 +1,5 @@
-﻿using IMS.Application.Helpers;
+﻿using IMS.Application.DTO.StockTransaction;
+using IMS.Application.Helpers;
 using IMS.Application.Interfaces;
 using IMS.Application.Interfaces.IAudit;
 using IMS.Domain.Enums;
@@ -14,19 +15,22 @@ namespace IMS.Application.Services
         private readonly IAuditService _audit;
         private readonly ICurrentUserService _currentUserService;
         private readonly IJobQueue _jobqueue;
+        private readonly IStockTransactionService _stockTransactionService;
 
         public ProductWarehouseService(
             IJobQueue jobqueue,
             ILogger<ProductWarehouseService> logger,
             IAppDbContext context,
             IAuditService audit,
-            ICurrentUserService currentUserService)
+            ICurrentUserService currentUserService,
+            IStockTransactionService stockTransactionService)
         {
             _jobqueue = jobqueue;
             _logger = logger;
             _context = context;
             _audit = audit;
             _currentUserService = currentUserService;
+            _stockTransactionService = stockTransactionService;
         }
 
         public async Task UpdateProductInWarehouseAsync(
@@ -46,16 +50,32 @@ namespace IMS.Application.Services
                 throw new InvalidOperationException("Product not found in the warehouse.");
             }
 
-            if (updateType == ProductUpdateInWarehouseType.IncreaseQuantity)
-                productWarehouse.Quantity += quantityChanged;
-            else
-            {
-                if (productWarehouse.Quantity < quantityChanged)
-                    throw new InvalidOperationException("Not enough quantity to decrease.");
-                productWarehouse.Quantity -= quantityChanged;
-            }
+            int adjustedQuantity = updateType == ProductUpdateInWarehouseType.IncreaseQuantity
+                ? quantityChanged
+                : -quantityChanged;
 
+            if (productWarehouse.Quantity + adjustedQuantity < 0)
+                throw new InvalidOperationException("Not enough quantity to decrease.");
+
+            productWarehouse.Quantity += adjustedQuantity;
             await _context.SaveChangesAsync();
+
+            var transactionType = updateType == ProductUpdateInWarehouseType.IncreaseQuantity
+                ? TransactionType.Purchase
+                : TransactionType.Sale;
+
+            var stockDto = new CreateStockTransactionDto
+            {
+                ProductId = productId,
+                FromWarehouseId = updateType == ProductUpdateInWarehouseType.DecreaseQuantity ? warehouseId : Guid.Empty,
+                ToWarehouseId = updateType == ProductUpdateInWarehouseType.IncreaseQuantity ? warehouseId : Guid.Empty,
+                QuantityChanged = quantityChanged,
+                Type = transactionType,
+                Note = $"{updateType} of {quantityChanged} units",
+                CompanyId = productWarehouse.Product!.CompanyId
+            };
+
+            await _stockTransactionService.LogTransaction(stockDto);
 
             var description = $"{_currentUserService.GetCurrentUserId()} " +
                               $"{(updateType == ProductUpdateInWarehouseType.IncreaseQuantity ? "added" : "removed")} " +
@@ -98,12 +118,24 @@ namespace IMS.Application.Services
 
             var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == productId);
 
+            var transferDto = new CreateStockTransactionDto
+            {
+                ProductId = productId,
+                FromWarehouseId = fromWarehouseId,
+                ToWarehouseId = toWarehouseId,
+                QuantityChanged = quantity,
+                Type = TransactionType.Transfer,
+                Note = $"Transfer of {quantity} units from warehouse {fromWarehouseId} to {toWarehouseId}",
+                CompanyId = product!.CompanyId
+            };
+
+            await _stockTransactionService.LogTransaction(transferDto);
+
             var description = $"{_currentUserService.GetCurrentUserId()} transferred {quantity} units of product {productId} " +
                               $"from warehouse {fromWarehouseId} to warehouse {toWarehouseId}";
 
             _jobqueue.EnqueueAudit(userId, product!.CompanyId, AuditAction.Transfer, description);
             _jobqueue.EnqueueCloudWatchAudit(description);
-
         }
     }
 }

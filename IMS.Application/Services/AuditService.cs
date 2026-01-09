@@ -59,6 +59,7 @@ namespace IMS.Application.Services
 
                 var audits = await _db.AuditLogs
                     .Where(al => al.CompanyId == companyId)
+                    .OrderByDescending(x => x.CreatedAt)
                     .Skip((pageNumber - 1) * pageSize)  
                     .Take(pageSize)
                     .Select(al => new AuditDto
@@ -67,7 +68,8 @@ namespace IMS.Application.Services
                         UserName = al.User!.FirstName,
                         CompanyId = al.CompanyId,
                         Description = al.Description!,
-                        Action = al.Action
+                        Action = al.Action,
+                        Timestamp = al.CreatedAt
                     })
                     .ToListAsync();
 

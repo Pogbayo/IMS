@@ -77,6 +77,7 @@ namespace IMS.Infrastructure.Persistence
             modelBuilder.Entity<AuditLog>().HasQueryFilter(a => !a.IsDeleted);
             modelBuilder.Entity<Category>().HasQueryFilter(a => !a.IsDeleted);
             modelBuilder.Entity<CompanyDailyStat>().HasQueryFilter(a => !a.IsDeleted);
+            modelBuilder.Entity<StockTransaction>() .HasQueryFilter(st => !st.Company.IsDeleted);
 
 
             modelBuilder.Entity<AuditLog>()
@@ -97,6 +98,18 @@ namespace IMS.Infrastructure.Persistence
             modelBuilder.Entity<Product>()
                 .HasIndex(p => p.SKU)
                 .IsUnique();
+
+            modelBuilder.Entity<Product>()
+                .Property(p => p.CostPrice)
+                .HasPrecision(18, 2);
+
+            modelBuilder.Entity<Product>()
+                .Property(p => p.Profit)
+                .HasPrecision(18, 2);
+
+            modelBuilder.Entity<CompanyDailyStat>()
+                .Property(c => c.TotalInventoryValue)
+                .HasPrecision(18, 2);
 
 
             // Company => AppUser (regular users in company) - NO ACTION

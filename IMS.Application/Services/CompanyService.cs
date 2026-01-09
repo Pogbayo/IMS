@@ -128,7 +128,7 @@ namespace IMS.Application.Services
                     _jobqueue.EnqueueCloudWatchAudit($"Company '{company.Name}' registered with admin '{Admin.Email}'.");
 
                     //_jobqueue.EnqueueEmail(Admin.Email, "Welcome!", $"Hi {Admin.FirstName}, InvManager welcomes you on board.");
-                    _jobqueue.EnqueueAWS_Ses(new List<string> { Admin.Email},"Welcome!", $"Hi {Admin.FirstName}, InvManager welcomes you on board.");
+                    _jobqueue.EnqueueAWS_Ses(new List<string> { Admin.Email},"Welcome!", $"Hi {Admin.FirstName}, welcome to InvManager! We’re glad to have you with us and look forward to supporting you every step of the way.");
                 }
                 catch (Exception ex)
                 {
@@ -340,6 +340,7 @@ namespace IMS.Application.Services
                 }
 
                 var companies = await _context.Companies
+                    .OrderByDescending(x => x.CreatedAt)
                     .Skip((pageNumber - 1) * pageSize)
                     .Take(pageSize)
                     .Select(c => new AllCompaniesDto

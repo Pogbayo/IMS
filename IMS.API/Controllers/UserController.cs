@@ -129,22 +129,25 @@ namespace IMS.API.Controllers
         }
 
         [Authorize(Policy = "Everyone")]
+        [Consumes("multipart/form-data")]
         [HttpPut("update-profile-image")]
         public async Task<IActionResult> UpdateProfileImage(
-            [FromQuery] Guid userId,
-            IFormFile file)
+        [FromForm] UpdateProfileImageRequest request)
         {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
-
-            if (file == null || file.Length == 0)
+            if (request.File == null || request.File.Length == 0)
                 return BadRequest("Invalid file");
 
-            var result = await _userService.UpdateProfileImage(userId, file);
+            var result = await _userService.UpdateProfileImage(
+                request.UserId,
+                request.File
+            );
+
             return result.Success
                 ? OkResponse(result)
                 : ErrorResponse(result.Error!);
         }
+
+
 
         [Authorize]
         [HttpPost("send-confirmation-email")]

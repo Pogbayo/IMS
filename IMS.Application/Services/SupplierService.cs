@@ -9,6 +9,7 @@ using IMS.Infrastructure.Mailer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using System.ComponentModel.Design;
 
 namespace IMS.Application.Services
 {
@@ -308,6 +309,7 @@ namespace IMS.Application.Services
                 await _context.SaveChangesAsync();
 
                 _cache.RemoveByPrefix($"Suppliers_{supplier.CompanyId}_");
+                string cacheKey = $"Suppliers_{supplier.CompanyId}_All";
 
                 var userId = _currentUserService.GetCurrentUserId();
                 _jobqueue.EnqueueAudit(userId, supplier.CompanyId, AuditAction.Update,

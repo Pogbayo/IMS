@@ -10,33 +10,69 @@ using Microsoft.Extensions.Logging;
 
 namespace IMS.Application.Services
 {
-    internal class StockTransactionService : IStockTransactionService
+    public class StockTransactionService : IStockTransactionService
     {
         private readonly IAppDbContext _context;
         private readonly ILogger<StockTransactionService> _logger;
         private readonly ICurrentUserService _currentUserService;
-        private readonly IProductService _productService;
-        private readonly IAuditService _auditservice;
         private readonly ICustomMemoryCache _cache;
         private readonly IJobQueue _jobqueue;
 
         public StockTransactionService(
             IAuditService auditService,
             IJobQueue jobqueue,
-            Func<IProductService> productServiceFactory,
             IAppDbContext context,
             ILogger<StockTransactionService> logger,
             ICurrentUserService currentUserService,
             ICustomMemoryCache cache)
         {
-            _productService = productServiceFactory();
-            _auditservice = auditService;
             _jobqueue = jobqueue;
             _context = context;
             _logger = logger;
             _currentUserService = currentUserService;
             _cache = cache;
         }
+
+        public async Task<Result<dynamic>> CalculateNewStockDetails(TransactionType transactionType, int PreviousQuantity, int QuantityChanged, Warehouse FromWarehouse, Warehouse ToWarehouse)
+        {
+            var previousQuantityCountForFromWarehouse = await _context.ProductWarehouses
+                .Where(pw => pw.WarehouseId == FromWarehouse.Id)
+                .Select(w => w.Quantity)
+                .FirstOrDefaultAsync();
+
+            var previousQuantityCountForToWarehouse = await _context.ProductWarehouses
+                .Where(pw => pw.WarehouseId == ToWarehouse.Id)
+                .Select(w => w.Quantity)
+                .FirstOrDefaultAsync();
+
+            if (transactionType == TransactionType.Transfer)
+            {
+                var TransferResult = new
+                {
+                    FromWarehouseName = FromWarehouse.Name,
+                    ToWarehouseName = ToWarehouse.Name,
+                    FromWarehousePreviousQuantity = previousQuantityCountForFromWarehouse,
+                    FromWarehouseNewQuantity = previousQuantityCountForFromWarehouse - QuantityChanged,
+                    ToWarehousePreviousQuantity = previousQuantityCountForToWarehouse,
+                    ToWarehouseNewQuantity = previousQuantityCountForToWarehouse + QuantityChanged,
+                    TransactionType = TransactionType.Transfer,
+                    QuantityChanged
+                };
+
+                //return Result<dynamic>.SuccessResponse(TransferResult.Cast<dynamic>());
+                return Result<dynamic>.SuccessResponse(TransferResult, "TransactionType was purchase so a dynamic result was generated for this method");
+            }
+
+            var newQuantity = transactionType switch
+            {
+                TransactionType.Sale => PreviousQuantity - QuantityChanged,
+                TransactionType.Purchase => PreviousQuantity + QuantityChanged,
+                _ => PreviousQuantity
+            };
+
+            return Result<dynamic>.SuccessResponse(new { NewQuantity = newQuantity, TransactionType = transactionType, QuantityChanged }, $"Transaction type was {transactionType}");
+        }
+
 
         public async Task<Result<List<StockTransactionDto>>> GetStockTransactions(
             Guid companyId,
@@ -82,7 +118,7 @@ namespace IMS.Application.Services
 
                     if (st.Type == TransactionType.Transfer)
                     {
-                        newStockData = _productService.CalculateNewStockDetails(
+                        newStockData = CalculateNewStockDetails(
                             st.Type,
                             st.ProductWarehouse!.Quantity,
                             st.QuantityChanged,
@@ -161,10 +197,6 @@ namespace IMS.Application.Services
             if (company == null)
                 return Result<bool>.FailureResponse("Log needs to be attached to a valid Company.");
 
-            using var dbTransaction = ((DbContext)_context).Database.BeginTransaction();
-
-            List<StockTransaction> transactions = new List<StockTransaction>();
-
             var productWarehouseId = await _context.ProductWarehouses
                 .Where(pw => pw.ProductId == dto.ProductId && pw.WarehouseId == dto.FromWarehouseId)
                 .Select(p => p.Id)
@@ -177,6 +209,8 @@ namespace IMS.Application.Services
 
             if (productWarehouseId == Guid.Empty || (dto.Type == TransactionType.Transfer && productWarehouseIdForTransfer == Guid.Empty))
                 return Result<bool>.FailureResponse("ProductWarehouseId can not be null");
+
+            var transactions = new List<StockTransaction>();
 
             if (dto.Type == TransactionType.Sale)
             {
@@ -230,15 +264,14 @@ namespace IMS.Application.Services
             }
             else
             {
-                return Result<bool>.FailureResponse("Please, provide a valid log Type...");
+                return Result<bool>.FailureResponse("Please provide a valid log Type...");
             }
 
             _context.StockTransactions.AddRange(transactions);
 
             try
             {
-                var dbResult = await _context.SaveChangesAsync();
-                await dbTransaction.CommitAsync();
+                var dbResult = await _context.SaveChangesAsync(); 
 
                 if (dbResult > 0)
                 {
@@ -247,8 +280,7 @@ namespace IMS.Application.Services
                         $"{userId} created a log for the following transaction");
 
                     _jobqueue.EnqueueCloudWatchAudit($"{userId} created a log for the following transaction");
-                    
-                    // Invalidtae cache for this company
+
                     _cache.RemoveByPrefix($"StockTransactions_{dto.CompanyId}_");
 
                     return Result<bool>.SuccessResponse(true, "Inventory Movement logged successfully...");
@@ -259,10 +291,9 @@ namespace IMS.Application.Services
                     return Result<bool>.FailureResponse("Inventory Movement was not logged successfully...");
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                _logger.LogWarning("An error occurred while saving the logs");
-                await dbTransaction.RollbackAsync();
+                _logger.LogWarning(ex, "An error occurred while saving the logs");
                 throw new Exception("An unknown error occurred while saving log to the db");
             }
         }

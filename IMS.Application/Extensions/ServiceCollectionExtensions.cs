@@ -32,29 +32,33 @@ namespace IMS.Application.Extensions
             services.AddScoped<IRecurringJob, IRecurringJobs>();
             services.AddScoped<IUserService, UserService>();
 
-            services.AddScoped<IProductService>(sp =>
-                new ProductService(
-                    sp.GetRequiredService<IJobQueue>(),
-                    sp.GetRequiredService<ICustomMemoryCache>(),
-                    () => sp.GetRequiredService<IStockTransactionService>(), // lazy loading
-                    sp.GetRequiredService<IImageService>(),
-                    sp.GetRequiredService<UserManager<AppUser>>(),
-                    sp.GetRequiredService<ILogger<ProductService>>(),
-                    sp.GetRequiredService<IAppDbContext>(),
-                    sp.GetRequiredService<IAuditService>(),
-                    sp.GetRequiredService<ICurrentUserService>()
-                ));
+            //services.AddScoped<IProductService>(sp =>
+            //    new ProductService(
+            //        sp.GetRequiredService<IJobQueue>(),
+            //        sp.GetRequiredService<ICustomMemoryCache>(),
+            //        sp.GetRequiredService<Lazy<IStockTransactionService>>(),
+            //        sp.GetRequiredService<IImageService>(),
+            //        sp.GetRequiredService<UserManager<AppUser>>(),
+            //        sp.GetRequiredService<ILogger<ProductService>>(),
+            //        sp.GetRequiredService<IAppDbContext>(),
+            //        sp.GetRequiredService<IAuditService>(),
+            //        sp.GetRequiredService<ICurrentUserService>()
+            //    ));
 
-            services.AddScoped<IStockTransactionService>(sp =>
-                new StockTransactionService(
-                    sp.GetRequiredService<IAuditService>(),
-                    sp.GetRequiredService<IJobQueue>(),
-                    () => sp.GetRequiredService<IProductService>(), // lazy loading
-                    sp.GetRequiredService<IAppDbContext>(),
-                    sp.GetRequiredService<ILogger<StockTransactionService>>(),
-                    sp.GetRequiredService<ICurrentUserService>(),
-                    sp.GetRequiredService<ICustomMemoryCache>()
-                ));
+            //services.AddScoped<IStockTransactionService>(sp =>
+            //    new StockTransactionService(
+            //        sp.GetRequiredService<IAuditService>(),
+            //        sp.GetRequiredService<IJobQueue>(),
+            //        sp.GetRequiredService<Lazy<IProductService>>(), 
+            //        sp.GetRequiredService<IAppDbContext>(),
+            //        sp.GetRequiredService<ILogger<StockTransactionService>>(),
+            //        sp.GetRequiredService<ICurrentUserService>(),
+            //        sp.GetRequiredService<ICustomMemoryCache>()
+            //    ));
+
+
+            services.AddScoped<IProductService, ProductService>();
+            services.AddScoped<IStockTransactionService, StockTransactionService>();
 
 
             //RecurringJob.AddOrUpdate<CompanyDailyStatsJob>(

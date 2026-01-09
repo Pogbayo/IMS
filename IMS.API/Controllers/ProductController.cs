@@ -18,9 +18,18 @@ namespace IMS.API.Controllers
             _productService = productService;
         }
 
+        [HttpGet("ping")]
+        [AllowAnonymous]
+        public IActionResult Ping()
+        {
+            return Ok("pong");
+        }
+
         [Authorize(Policy = "Everyone")]
+        [AllowAnonymous]
+        [Consumes("multipart/form-data")]
         [HttpPost("create")]
-        public async Task<IActionResult> CreateProduct([FromBody] ProductCreateDto dto)
+        public async Task<IActionResult> CreateProduct([FromForm] ProductCreateDto dto)
         {
             if (!ModelState.IsValid)
                 return ErrorResponse("Invalid request data");
