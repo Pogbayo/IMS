@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using System.ComponentModel.Design;
 using static System.Net.Mime.MediaTypeNames;
 
 
@@ -620,6 +621,9 @@ namespace IMS.Application.Services
             _cache.Remove($"Company:{product.CompanyId}:Products");
             _cache.RemoveByPrefix($"Products:Filtered:");
             _cache.RemoveByPrefix($"Products:SKU:");
+            _cache.RemoveByPrefix( $"Company:{product.CompanyId}");
+            _cache.RemoveByPrefix($"Warehouse:");
+
 
             return Result<string>.SuccessResponse("Product updated successfully.");
         }
@@ -688,13 +692,14 @@ namespace IMS.Application.Services
             try
             {
                 var query = _context.ProductWarehouses
-                    .Where(pw => pw.WarehouseId == warehouseId);
+                    .Where(pw => pw.WarehouseId == warehouseId && !pw.Product!.IsDeleted);
 
                 var totalCount = await query.CountAsync();
 
                 var warehouseProductsList = await query
                     .AsNoTracking()
-                    .Skip(pageIndex * pageSize)
+                    .OrderBy(p => p.CreatedAt)
+                    .Skip((pageIndex - 1) * pageSize)
                     .Take(pageSize)
                     .Select(pw => new ProductsDto(
                         pw.ProductId,

@@ -288,6 +288,8 @@ namespace IMS.Application.Services
                 else
                 {
                     _logger.LogWarning("Inventory Movement was not logged successfully...");
+                    _jobqueue.EnqueueCloudWatchAudit($"Inventory Movement was not logged successfully...");
+
                     return Result<bool>.FailureResponse("Inventory Movement was not logged successfully...");
                 }
             }
