@@ -197,26 +197,68 @@ namespace IMS.Application.Services
             if (company == null)
                 return Result<bool>.FailureResponse("Log needs to be attached to a valid Company.");
 
-            var productWarehouseId = await _context.ProductWarehouses
-                .Where(pw => pw.ProductId == dto.ProductId && pw.WarehouseId == dto.FromWarehouseId)
-                .Select(p => p.Id)
-                .FirstOrDefaultAsync();
+            //var productWarehouseId = await _context.ProductWarehouses
+            //    .Where(pw => pw.ProductId == dto.ProductId && pw.WarehouseId == dto.FromWarehouseId)
+            //    .Select(p => p.Id)
+            //    .FirstOrDefaultAsync();
 
-            var productWarehouseIdForTransfer = await _context.ProductWarehouses
-                .Where(pw => pw.ProductId == dto.ProductId && pw.WarehouseId == dto.ToWarehouseId)
-                .Select(p => p.Id)
-                .FirstOrDefaultAsync();
+            //var productWarehouseIdForTransfer = await _context.ProductWarehouses
+            //    .Where(pw => pw.ProductId == dto.ProductId && pw.WarehouseId == dto.ToWarehouseId)
+            //    .Select(p => p.Id)
+            //    .FirstOrDefaultAsync();
 
-            if (productWarehouseId == Guid.Empty || (dto.Type == TransactionType.Transfer && productWarehouseIdForTransfer == Guid.Empty))
-                return Result<bool>.FailureResponse("ProductWarehouseId can not be null");
+            //if (productWarehouseId == Guid.Empty || (dto.Type == TransactionType.Transfer && productWarehouseIdForTransfer == Guid.Empty))
+            //    return Result<bool>.FailureResponse("ProductWarehouseId can not be null");
 
             var transactions = new List<StockTransaction>();
+
+            Guid? fromProductWarehouseId = null;
+            Guid? toProductWarehouseId = null;
+
+            if (dto.Type == TransactionType.Sale || dto.Type == TransactionType.Transfer)
+            {
+                fromProductWarehouseId = await _context.ProductWarehouses
+                    .Where(pw => pw.ProductId == dto.ProductId && pw.WarehouseId == dto.FromWarehouseId)
+                    .Select(pw => pw.Id)
+                    .FirstOrDefaultAsync();
+            }
+
+            if (dto.Type == TransactionType.Purchase || dto.Type == TransactionType.Transfer)
+            {
+                toProductWarehouseId = await _context.ProductWarehouses
+                    .Where(pw => pw.ProductId == dto.ProductId && pw.WarehouseId == dto.ToWarehouseId)
+                    .Select(pw => pw.Id)
+                    .FirstOrDefaultAsync();
+            }
+
+            // Validate based on type
+            var isValid = true;
+            string? validationError = null;
+
+            if (dto.Type == TransactionType.Sale && fromProductWarehouseId == Guid.Empty)
+            {
+                isValid = false;
+                validationError = "ProductWarehouseId cannot be null for Sale";
+            }
+            else if (dto.Type == TransactionType.Purchase && toProductWarehouseId == Guid.Empty)
+            {
+                isValid = false;
+                validationError = "ProductWarehouseId cannot be null for Purchase";
+            }
+            else if (dto.Type == TransactionType.Transfer && (fromProductWarehouseId == Guid.Empty || toProductWarehouseId == Guid.Empty))
+            {
+                isValid = false;
+                validationError = "ProductWarehouseId(s) cannot be null for Transfer";
+            }
+
+            if (!isValid)
+                return Result<bool>.FailureResponse(validationError ?? "ProductWarehouseId cannot be null");
 
             if (dto.Type == TransactionType.Sale)
             {
                 transactions.Add(new StockTransaction
                 {
-                    ProductWarehouseId = productWarehouseId,
+                    ProductWarehouseId = fromProductWarehouseId!.Value,
                     QuantityChanged = -dto.QuantityChanged,
                     Type = dto.Type,
                     Note = dto.Note,
@@ -229,7 +271,7 @@ namespace IMS.Application.Services
             {
                 transactions.Add(new StockTransaction
                 {
-                    ProductWarehouseId = productWarehouseId,
+                    ProductWarehouseId = toProductWarehouseId!.Value,
                     QuantityChanged = dto.QuantityChanged,
                     Type = dto.Type,
                     Note = dto.Note,
@@ -242,7 +284,7 @@ namespace IMS.Application.Services
             {
                 transactions.Add(new StockTransaction
                 {
-                    ProductWarehouseId = productWarehouseId,
+                    ProductWarehouseId = fromProductWarehouseId!.Value,
                     QuantityChanged = -dto.QuantityChanged,
                     Type = dto.Type,
                     Note = dto.Note,
@@ -253,7 +295,7 @@ namespace IMS.Application.Services
 
                 transactions.Add(new StockTransaction
                 {
-                    ProductWarehouseId = productWarehouseIdForTransfer,
+                    ProductWarehouseId = toProductWarehouseId!.Value,
                     QuantityChanged = dto.QuantityChanged,
                     Type = dto.Type,
                     Note = dto.Note,

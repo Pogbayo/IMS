@@ -1,5 +1,6 @@
 ﻿using IMS.Application.DTO.User;
 using IMS.Application.Interfaces;
+using IMS.Domain.Enums;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -45,7 +46,7 @@ namespace IMS.API.Controllers
         }
 
         [Authorize(Policy = "AdminOnly")]
-        [HttpPut("update/{userId}")]
+        [HttpPatch("update/{userId}")]
         public async Task<IActionResult> UpdateUser(
             [FromRoute] Guid userId,
             [FromBody] UpdateUserDto dto)
@@ -90,12 +91,12 @@ namespace IMS.API.Controllers
         [HttpPost("add-role")]
         public async Task<IActionResult> AddRoleToUser(
             [FromQuery] Guid userId,
-            [FromQuery] string role)
+            [FromQuery] Roles role)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            var result = await _userService.AddRoleToUser(userId, role);
+            var result = await _userService.AddRoleToUser(userId, role.ToString());
             return result.Success
                 ? OkResponse(result)
                 : ErrorResponse(result.Error!);
@@ -146,8 +147,6 @@ namespace IMS.API.Controllers
                 ? OkResponse(result)
                 : ErrorResponse(result.Error!);
         }
-
-
 
         [Authorize]
         [HttpPost("send-confirmation-email")]

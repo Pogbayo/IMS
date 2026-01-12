@@ -65,10 +65,14 @@ namespace IMS.API.Controllers
 
         [Authorize(Policy = "Everyone")]
         [HttpPut("update/{productId}")]
-        public async Task<IActionResult> UpdateProduct([FromRoute] Guid productId, [FromBody] ProductUpdateDto dto)
+        [Consumes("multipart/form-data")]  
+        public async Task<IActionResult> UpdateProduct([FromRoute] Guid productId, [FromForm] ProductUpdateDto dto)
         {
             if (!ModelState.IsValid)
                 return ErrorResponse("Invalid request data");
+
+            if (dto.ImgUrl != null && dto.ImgUrl.Length > 5 * 1024 * 1024)  
+                return ErrorResponse("Image file too large (max 5MB)");
 
             var result = await _productService.UpdateProduct(productId, dto);
             return result.Success

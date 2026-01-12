@@ -134,8 +134,15 @@ namespace IMS.Application.Services
 
         public async Task<Result<Guid>> CreateProduct(ProductCreateDto dto)
         {
+
             if (dto == null)
                 return Result<Guid>.FailureResponse("Bad Request");
+            if (dto.CostPrice < 0)
+                return Result<Guid>.FailureResponse("Cost price cannot be negative");
+            if (dto.RetailPrice < 0)
+                return Result<Guid>.FailureResponse("Retail price cannot be negative");
+            if (dto.Quantity < 0)
+                return Result<Guid>.FailureResponse("Quantity cannot be negative");
 
             var userId = _currentUserService.GetCurrentUserId();
             var companyId = await GetCurrentUserCompanyIdAsync();
@@ -295,30 +302,23 @@ namespace IMS.Application.Services
             return Result<Guid>.SuccessResponse(product.Id);
         }
 
-
         public async Task<Result<ProductDto>> GetProductById(Guid productId)
         {
             var userId = _currentUserService.GetCurrentUserId();
             var companyId = await GetCurrentUserCompanyIdAsync();
-
             _logger.LogInformation("User {UserId} requested product with Id {ProductId}", userId, productId);
-
             if (productId == Guid.Empty)
             {
                 SafeEnqueue(() => _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, "Attempted to fetch product with empty Id"));
                 SafeEnqueue(() => _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to fetch product with empty Id for Company {companyId}"));
-
                 return Result<ProductDto>.FailureResponse("Bad Request: Product Id cannot be empty");
             }
-
             var summaryCacheKey = $"Product:{productId}:Summary";
             var stockCacheKey = $"Product:{productId}:Stock";
             var transactionsCacheKey = $"Product:{productId}:Transactions";
-
             if (!_cache.TryGetValue(summaryCacheKey, out ProductSummaryCache? summary))
             {
                 _logger.LogInformation("Summary cache miss for product {ProductId}", productId);
-
                 summary = await _context.Products
                     .Where(p => p.Id == productId)
                     .Select(p => new ProductSummaryCache
@@ -326,7 +326,7 @@ namespace IMS.Application.Services
                         Id = p.Id,
                         Name = p.Name,
                         SKU = p.SKU,
-                        ImgUrl = p.ImgUrl!,
+                        ImgUrl = p.ImgUrl ?? string.Empty, 
                         RetailPrice = p.RetailPrice,
                         CostPrice = p.CostPrice,
                         Profit = p.RetailPrice - p.CostPrice,
@@ -338,22 +338,17 @@ namespace IMS.Application.Services
                             Email = p.Supplier.Email
                         }
                     }).FirstOrDefaultAsync();
-
                 if (summary == null)
                 {
                     _logger.LogWarning("Product not found");
-
                     SafeEnqueue(() => _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Attempted to fetch non-existing product {productId}"));
                     SafeEnqueue(() => _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to fetch non-existing product {productId} for Company {companyId}"));
-
                     return Result<ProductDto>.FailureResponse("Product not found in the Database");
                 }
-
                 _cache.Set(summaryCacheKey, summary, new MemoryCacheEntryOptions
                 {
                     AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(30)
                 });
-
                 SafeEnqueue(() => _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Product {summary.Name} ({productId}) loaded from DB and cached"));
                 SafeEnqueue(() => _jobqueue.EnqueueCloudWatchAudit($"User {userId} loaded product {summary.Name} ({productId}) from DB and cached for Company {companyId}"));
             }
@@ -363,42 +358,34 @@ namespace IMS.Application.Services
                 SafeEnqueue(() => _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Product {productId} summary retrieved from cache"));
                 SafeEnqueue(() => _jobqueue.EnqueueCloudWatchAudit($"User {userId} retrieved product {productId} summary from cache for Company {companyId}"));
             }
-
             if (!_cache.TryGetValue(stockCacheKey, out ProductStockDto cachedStockValue))
             {
                 _logger.LogInformation("Stock cache miss for product {ProductId}", productId);
-
                 var warehouses = await _context.ProductWarehouses
                     .Where(pw => pw.ProductId == productId)
                     .Include(pw => pw.Warehouse)
                     .ToListAsync();
-
                 var overAllCount = warehouses.Sum(w => w.Quantity);
-
                 cachedStockValue = new ProductStockDto
                 {
                     Warehouses = warehouses.Select(w => new WarehouseCount
                     {
-                        WarehouseName = w.Warehouse!.Name,
+                        WarehouseName = w.Warehouse?.Name ?? "Unknown Warehouse",  
                         Quantity = w.Quantity
                     }).ToList(),
-
                     OverAllCount = overAllCount,
-
                     StockLevel = overAllCount switch
                     {
-                        0 => ProductStockLevel.Low,                         
-                        <= 15 => ProductStockLevel.Medium,
-                        <= 30 => ProductStockLevel.High,
-                        _ => ProductStockLevel.OutOfStock
+                        0 => ProductStockLevel.OutOfStock,  
+                        > 0 and <= 15 => ProductStockLevel.Low,  
+                        > 15 and <= 30 => ProductStockLevel.Medium,
+                        _ => ProductStockLevel.High  
                     }
                 };
-
                 _cache.Set(stockCacheKey, cachedStockValue, new MemoryCacheEntryOptions
                 {
                     AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5)
                 });
-
                 SafeEnqueue(() => _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Product {productId} stock loaded from DB and cached"));
                 SafeEnqueue(() => _jobqueue.EnqueueCloudWatchAudit($"User {userId} loaded product {productId} stock from DB and cached for Company {companyId}"));
             }
@@ -408,11 +395,9 @@ namespace IMS.Application.Services
                 SafeEnqueue(() => _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Product {productId} stock retrieved from cache"));
                 SafeEnqueue(() => _jobqueue.EnqueueCloudWatchAudit($"User {userId} retrieved product {productId} stock from cache for Company {companyId}"));
             }
-
             if (!_cache.TryGetValue(transactionsCacheKey, out List<StockTransactionDto> CachedTransactions))
             {
                 _logger.LogInformation("Transactions cache miss for product {ProductId}", productId);
-
                 var stockTransactions = await _context.StockTransactions
                    .Include(st => st.ProductWarehouse)
                        .ThenInclude(pw => pw!.Product)
@@ -421,57 +406,62 @@ namespace IMS.Application.Services
                    .Where(st => st.ProductWarehouse != null && st.ProductWarehouse.ProductId == productId)
                    .OrderByDescending(st => st.TransactionDate)
                    .ToListAsync();
-
-
                 CachedTransactions = new List<StockTransactionDto>();
-
                 foreach (var st in stockTransactions)
                 {
                     object? newStockData = null;
-
+                    var pwQuantity = st.ProductWarehouse?.Quantity ?? 0;  
                     if (st.Type == TransactionType.Transfer)
                     {
-                        newStockData = await CalculateNewStockDetails(
-                            st.Type,
-                            st.ProductWarehouse!.Quantity,
-                            st.QuantityChanged,
-                            st.FromWarehouse!,
-                            st.ToWarehouse!);
+                        if (st.FromWarehouse == null || st.ToWarehouse == null)
+                        {
+                            _logger.LogWarning("Skipping Transfer transaction {StId} due to null warehouse(s)", st.Id);
+                            newStockData = null; 
+                        }
+                        else
+                        {
+                            newStockData = await CalculateNewStockDetails(
+                                st.Type,
+                                pwQuantity,
+                                st.QuantityChanged,
+                                st.FromWarehouse,
+                                st.ToWarehouse);
+                        }
                     }
                     else if (st.Type == TransactionType.Purchase)
                     {
                         newStockData = new PurchaseStockLevelDto
                         {
-                            PreviousQuantity = st.ProductWarehouse!.Quantity,
-                            NewQuantity = st.ProductWarehouse.Quantity + st.QuantityChanged
+                            PreviousQuantity = pwQuantity,
+                            NewQuantity = pwQuantity + st.QuantityChanged
                         };
                     }
                     else if (st.Type == TransactionType.Sale)
                     {
                         newStockData = new SaleStockLevelDto
                         {
-                            PreviousQuantity = st.ProductWarehouse!.Quantity,
-                            NewQuantity = st.ProductWarehouse.Quantity - st.QuantityChanged
+                            PreviousQuantity = pwQuantity,
+                            NewQuantity = pwQuantity - st.QuantityChanged
                         };
                     }
-
                     CachedTransactions.Add(new StockTransactionDto
                     {
                         QuantityChanged = st.QuantityChanged,
                         Type = st.Type,
                         Note = st.Note,
                         TransactionDate = st.TransactionDate,
-                        WarehouseId = st.ProductWarehouse!.WarehouseId,
-                        WarehouseName = st.FromWarehouse!.Name,
+                        WarehouseId = st.ProductWarehouse?.WarehouseId ?? Guid.Empty,  
+                        WarehouseName = st.FromWarehouse?.Name
+                                          ?? st.ToWarehouse?.Name
+                                          ?? st.ProductWarehouse?.Warehouse?.Name
+                                          ?? "Unknown",
                         NewStockLevel = newStockData
                     });
                 }
-
                 _cache.Set(transactionsCacheKey, CachedTransactions, new MemoryCacheEntryOptions
                 {
                     AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(2)
                 });
-
                 SafeEnqueue(() => _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Product {productId} transactions loaded from DB and cached"));
                 SafeEnqueue(() => _jobqueue.EnqueueCloudWatchAudit($"User {userId} loaded product {productId} transactions from DB and cached for Company {companyId}"));
             }
@@ -481,7 +471,6 @@ namespace IMS.Application.Services
                 SafeEnqueue(() => _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Product {productId} transactions retrieved from cache"));
                 SafeEnqueue(() => _jobqueue.EnqueueCloudWatchAudit($"User {userId} retrieved product {productId} transactions from cache for Company {companyId}"));
             }
-
             var productDto = new ProductDto
             {
                 Id = summary!.Id,
@@ -497,14 +486,11 @@ namespace IMS.Application.Services
                 SupplierInfo = summary.SupplierInfo,
                 Transactions = CachedTransactions
             };
-
             _logger.LogInformation("User {UserId} successfully retrieved product {ProductId}", userId, productId);
             SafeEnqueue(() => _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Product {summary.Name} ({productId}) retrieved successfully"));
             SafeEnqueue(() => _jobqueue.EnqueueCloudWatchAudit($"User {userId} retrieved product {summary.Name} ({productId}) successfully for Company {companyId}"));
-
             return Result<ProductDto>.SuccessResponse(productDto, "Product retrieved successfully");
         }
-
         public async Task<Result<List<ProductsDto>>> GetProductsByCompanyId(Guid companyId, int pageSize, int pageNumber)
         {
             var userId = _currentUserService.GetCurrentUserId();
@@ -520,7 +506,8 @@ namespace IMS.Application.Services
             pageNumber = Math.Max(pageNumber, 1);
             pageSize = Math.Clamp(pageSize, 1, 100);
 
-            var cacheKey = $"Company:{companyId}:Products:Page:{pageNumber}:Size:{pageSize}";
+            //var cacheKey = $"Company:{companyId}:Products:Page:{pageNumber}:Size:{pageSize}";
+            var cacheKey = $"Company:{companyId}:Products";
 
             if (_cache.TryGetValue(cacheKey, out List<ProductsDto> cachedProducts))
             {
@@ -604,9 +591,11 @@ namespace IMS.Application.Services
                 return Result<string>.FailureResponse("Product with provided ID not found.");
             }
 
+            var imageUrl = await _image_service.UploadImageAsync(dto.ImgUrl!, "product", productId);
+
             product.Name = dto.Name ?? product.Name;
             product.RetailPrice = dto.Price ?? product.RetailPrice;
-            product.ImgUrl = dto.ImgUrl ?? product.ImgUrl;
+            product.ImgUrl = imageUrl ?? product.ImgUrl;
 
             product.MarkAsUpdated();
 
@@ -618,12 +607,10 @@ namespace IMS.Application.Services
             _cache.Remove($"Product:{productId}:Summary");
             _cache.Remove($"Product:{productId}:Stock");
             _cache.Remove($"Product:{productId}:Transactions");
-            _cache.Remove($"Company:{product.CompanyId}:Products");
-            _cache.RemoveByPrefix($"Products:Filtered:");
+            _cache.RemoveByPrefix($"Products:Filtered");
             _cache.RemoveByPrefix($"Products:SKU:");
-            _cache.RemoveByPrefix( $"Company:{product.CompanyId}");
+            _cache.RemoveByPrefix($"Company:{product.CompanyId}:Products");
             _cache.RemoveByPrefix($"Warehouse:");
-
 
             return Result<string>.SuccessResponse("Product updated successfully.");
         }

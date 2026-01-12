@@ -192,6 +192,7 @@ namespace IMS.Application.Services
                 foreach (var user in company.Users)
                 {
                     user.Tokenversion++;
+                    user.MarkAsDeleted();
                     _jobqueue.EnqueueAudit(user.Id, company.Id, AuditAction.Invalidate, $"{user.FirstName} has been invalidated");
                     _jobqueue.EnqueueCloudWatchAudit($"User {user.Id} invalidated due to company deletion {companyId}");
                     //_jobqueue.EnqueueEmail(user.Email!, "IMPORTANT NOTICE!!!!", $"Dear Customer, we are sorry to inform you that your account has been invalidated because company {company.Name} was deleted.");

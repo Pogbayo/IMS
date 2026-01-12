@@ -1,6 +1,8 @@
 ﻿using IMS.Application.Interfaces;
+using IMS.Domain.Entities;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.JsonPatch;
 using Microsoft.AspNetCore.Mvc;
 
 namespace IMS.API.Controllers
@@ -43,13 +45,16 @@ namespace IMS.API.Controllers
         }
 
         [Authorize(Policy = "AdminOnly")]
-        [HttpPut("update")]
+        [HttpPatch("update")]
         public async Task<IActionResult> UpdateSupplier([FromBody] SupplierUpdateDto dto)
         {
             if (!ModelState.IsValid)
                 return ErrorResponse("Invalid request data");
 
-            var result = await _supplierService.UpdateSupplier(dto);
+            if (dto == null || dto.Id == Guid.Empty)
+                return ErrorResponse("Invalid or missing Supplier ID.");
+
+            var result = await _supplierService.UpdateSupplier(dto);  
             return result.Success
                 ? OkResponse(result)
                 : ErrorResponse(result.Error ?? "Failed to update supplier", result.Message);

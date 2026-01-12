@@ -5,7 +5,7 @@ using IMS.Application.Interfaces;
 using IMS.Application.Interfaces.IAudit;
 using IMS.Domain.Entities;
 using IMS.Domain.Enums;
-using IMS.Infrastructure.Mailer;
+using Microsoft.AspNetCore.JsonPatch;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -88,7 +88,7 @@ namespace IMS.Application.Services
                 supplier.MarkAsDeleted();
                 await _context.SaveChangesAsync();
 
-                _cache.RemoveByPrefix($"Suppliers_{companyId}_");
+                _cache.Remove($"Suppliers_{companyId}_All");
 
                 var body = $@"
                     Hello {supplier.Name},
@@ -241,7 +241,7 @@ namespace IMS.Application.Services
                 _context.Suppliers.Add(supplier);
                 await _context.SaveChangesAsync();
 
-                _cache.RemoveByPrefix($"Suppliers_{companyId}_");
+                _cache.Remove($"Suppliers_{companyId}_All");
 
                 var body = $@"
                         Hello {supplier.Name},
@@ -284,7 +284,6 @@ namespace IMS.Application.Services
                 return Result<string>.FailureResponse("An unknown error occurred while registering Supplier to the Company");
             }
         }
-
         public async Task<Result<string>> UpdateSupplier(SupplierUpdateDto dto)
         {
             if (dto == null || dto.Id == Guid.Empty)
@@ -299,18 +298,24 @@ namespace IMS.Application.Services
                 if (supplier == null)
                     return Result<string>.FailureResponse("Supplier not found.");
 
-                supplier.Name = dto.Name ?? supplier.Name;
-                supplier.Email = dto.Email ?? supplier.Email;
-                supplier.PhoneNumber = dto.PhoneNumber ?? supplier.PhoneNumber;
+                if (!string.IsNullOrWhiteSpace(dto.Name) && dto.Name != "string")
+                    supplier.Name = dto.Name;
+                if (!string.IsNullOrWhiteSpace(dto.Email) && dto.Email != "string")
+                    supplier.Email = dto.Email;
+                if (!string.IsNullOrWhiteSpace(dto.PhoneNumber) && dto.PhoneNumber != "string")
+                    supplier.PhoneNumber = dto.PhoneNumber;
+
                 if (dto.IsActive.HasValue)
                     supplier.IsActive = dto.IsActive.Value;
+
+                if (string.IsNullOrWhiteSpace(supplier.Name) && string.IsNullOrWhiteSpace(supplier.Email) &&
+                    string.IsNullOrWhiteSpace(supplier.PhoneNumber) && !dto.IsActive.HasValue)
+                    return Result<string>.SuccessResponse("No changes to apply.");  
 
                 supplier.MarkAsUpdated();
                 await _context.SaveChangesAsync();
 
-                _cache.RemoveByPrefix($"Suppliers_{supplier.CompanyId}_");
-                string cacheKey = $"Suppliers_{supplier.CompanyId}_All";
-
+                _cache.Remove($"Suppliers_{supplier.CompanyId}_All");
                 var userId = _currentUserService.GetCurrentUserId();
                 _jobqueue.EnqueueAudit(userId, supplier.CompanyId, AuditAction.Update,
                     $"Supplier {supplier.Name} (ID: {supplier.Id}) was updated by {userId}");
@@ -322,15 +327,12 @@ namespace IMS.Application.Services
             {
                 _logger.LogError(ex, "Error updating supplier with ID {SupplierId}", dto.Id);
                 var userId = _currentUserService.GetCurrentUserId();
-
                 _jobqueue.EnqueueAudit(userId, Guid.Empty, AuditAction.Error,
                     $"UpdateSupplier encountered an exception for Supplier {dto.Id}");
                 _jobqueue.EnqueueCloudWatchAudit($"User {userId} encountered an exception updating Supplier {dto.Id}: {ex.Message}");
-
                 return Result<string>.FailureResponse("An error occurred while updating the supplier.");
             }
         }
-
         public async Task<Result<SupplierDto>> GetSupplierByName(string name)
         {
             if (string.IsNullOrWhiteSpace(name))
@@ -402,7 +404,5 @@ namespace IMS.Application.Services
                 return Result<SupplierDto>.FailureResponse("Error fetching supplier.");
             }
         }
-
-
     }
 }
