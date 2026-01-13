@@ -82,8 +82,8 @@ namespace IMS.Application.Services
                 {
                     FirstName = dto.FirstName,
                     LastName = dto.LastName,
-                    Email = dto.Email,
-                    UserName = dto.Email,
+                    Email = dto.AdminEmail,
+                    UserName = dto.AdminEmail,
                     CompanyId = company.Id,
                     IsCompanyAdmin = true,
                     PhoneNumber = dto.AdminPhoneNumber!

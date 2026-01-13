@@ -607,9 +607,10 @@ namespace IMS.Application.Services
             _cache.Remove($"Product:{productId}:Summary");
             _cache.Remove($"Product:{productId}:Stock");
             _cache.Remove($"Product:{productId}:Transactions");
+            _cache.Remove($"Company:{product.CompanyId}:Products");
+
             _cache.RemoveByPrefix($"Products:Filtered");
             _cache.RemoveByPrefix($"Products:SKU:");
-            _cache.RemoveByPrefix($"Company:{product.CompanyId}:Products");
             _cache.RemoveByPrefix($"Warehouse:");
 
             return Result<string>.SuccessResponse("Product updated successfully.");

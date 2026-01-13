@@ -14,7 +14,7 @@ namespace IMS.Application.DTO.Company
 
         [Required]
         [EmailAddress]
-        public string Email { get; set; } = string.Empty;
+        public string AdminEmail { get; set; } = string.Empty;
 
         [Required]
         [DataType(DataType.Password)]
