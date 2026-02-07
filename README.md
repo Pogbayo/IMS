@@ -249,6 +249,3 @@ Planned enhancements:
 - Background processing for heavy or async operations
 - Prometheus metrics, structured logging, and distributed tracing
 
-## License
-
-No license file is included. Add an appropriate `LICENSE` file if you plan to open-source the project.
