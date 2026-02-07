@@ -42,7 +42,7 @@ This README focuses on developer setup, common workflows, and project convention
 - .NET 9 (`net9.0`)
 - C#
 - ASP.NET Core Web API
-- (Optional) Entity Framework Core or another data provider
+-  Entity Framework Core or another data provider
 - Test frameworks: xUnit / NUnit / MSTest (check `tests/`)
 
 ## Repository Layout
@@ -86,9 +86,10 @@ cd IMS
 
 Restore, build, and run the API project:
 
-dotnet restore
+```dotnet restore
 dotnet build
 dotnet run --project src/IMS.API/IMS.API.csproj
+```
 
 Open `https://localhost:5001` (or the URL shown in console output). Use `dotnet watch` inside the API project for a live development loop.
 
@@ -154,8 +155,9 @@ If using EF Core:
 dotnet ef migrations add InitialCreate --project src/IMS.Infrastructure --startup-project src/IMS.API
 
 - Apply migrations:
-
+```
 dotnet ef database update --project src/IMS.Infrastructure --startup-project src/IMS.API
+```
 
 Adjust provider, project, and startup project names to match your solution.
 
@@ -178,10 +180,11 @@ curl -k "https://localhost:5001/api/items" -H "accept: application/json"
 
 Create a stock transaction:
 
+```
 curl -k -X POST "https://localhost:5001/api/stocktransactions" \
   -H "Content-Type: application/json" \
   -d '{"itemId":"123","quantity":10,"movementType":"Add"}'
-
+  ```
 Adjust routes and payloads to match your controllers.
 
 ## Testing
@@ -200,10 +203,11 @@ Guidance:
 
 Recommended basics for CI (GitHub Actions / Azure Pipelines):
 
+```
 - Run `dotnet restore`, `dotnet build`, and `dotnet test` on pull requests.
 - Optionally run static analyzers and code-format checks.
 - Deploy artifacts to staging and run migration steps as part of deployment.
-
+```
 ## Coding Standards and Tooling
 
 - Follow `.editorconfig` for formatting and analyzer severities (e.g., `IDE0320` is configured as a warning).
