@@ -32,11 +32,11 @@ namespace IMS.Infrastructure.Token
             }
 
             var claims = new List<Claim>
-    {
-        new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-        new Claim(ClaimTypes.Email, user.Email ?? string.Empty),
-        new Claim("tokenVersion", user.Tokenversion.ToString())
-    };
+            {
+                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                new Claim(ClaimTypes.Email, user.Email ?? string.Empty),
+                new Claim("tokenVersion", user.Tokenversion.ToString())
+            };
 
             var roles = await _userManager.GetRolesAsync(user);
             foreach (var role in roles)

@@ -23,7 +23,6 @@ namespace IMS.Infrastructure.DBSeeder
             _ims = ims;
         }
 
-
         public async Task RoleSeeder()
         {
             _logger.LogInformation("Seeding...");

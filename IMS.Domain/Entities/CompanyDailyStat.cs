@@ -1,5 +1,4 @@
-﻿
-namespace IMS.Domain.Entities
+﻿namespace IMS.Domain.Entities
 {
     public class CompanyDailyStat : BaseEntity
     {

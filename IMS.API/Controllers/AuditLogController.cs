@@ -10,7 +10,6 @@ namespace IMS.API.Controllers
     [ApiController]
     [Route("api/[controller]")]
     [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
-
     public class AuditLogController : BaseController
     {
         private readonly IAuditService _auditService;
@@ -40,14 +39,6 @@ namespace IMS.API.Controllers
             return result.Success
                 ? OkResponse(result)
                 : ErrorResponse(result.Error!, result.Message);
-        }
-
-
-        [HttpGet("ping")]
-        [AllowAnonymous]
-        public IActionResult Ping()
-        {
-            return Ok("pong");
         }
     }
 }

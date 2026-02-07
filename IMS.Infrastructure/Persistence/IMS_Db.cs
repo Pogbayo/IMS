@@ -66,7 +66,6 @@ namespace IMS.Infrastructure.Persistence
             modelBuilder.Entity<Warehouse>().ToTable("Warehouses", "inventory");
             modelBuilder.Entity<Category>().ToTable("Categories", "inventory");
 
-            
             modelBuilder.Entity<AppUser>().HasQueryFilter(u => !u.IsDeleted);
             modelBuilder.Entity<Company>().HasQueryFilter(c => !c.IsDeleted);
             modelBuilder.Entity<Warehouse>().HasQueryFilter(w => !w.IsDeleted);
@@ -78,7 +77,6 @@ namespace IMS.Infrastructure.Persistence
             modelBuilder.Entity<Category>().HasQueryFilter(a => !a.IsDeleted);
             modelBuilder.Entity<CompanyDailyStat>().HasQueryFilter(a => !a.IsDeleted);
             modelBuilder.Entity<StockTransaction>() .HasQueryFilter(st => !st.Company.IsDeleted);
-
 
             modelBuilder.Entity<AuditLog>()
                 .Property(a => a.Action)

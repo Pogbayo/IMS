@@ -70,13 +70,15 @@ namespace IMS.Application.Services
                 {
                     Name = dto.CompanyName!,
                     CompanyEmail = dto.CompanyEmail!,
-                    HeadOffice = dto.HeadOffice!
+                    HeadOffice = dto.HeadOffice!,
+                    AdminEmail = dto.AdminEmail!,       
+                    CompanyLine = dto.CompanyLine!
                 };
+
+                await _phonevalidator.Validate(dto.AdminPhoneNumber!);
 
                 _context.Companies.Add(company);
                 await _context.SaveChangesAsync();
-
-                await _phonevalidator.Validate(dto.AdminPhoneNumber!);
 
                 var Admin = new AppUser
                 {
@@ -136,17 +138,21 @@ namespace IMS.Application.Services
                     _jobqueue.EnqueueCloudWatchAudit($"Post-registration tasks failed for company '{company.Name}': {ex.Message}");
                 }
 
+                var savedCompany = await _context.Companies
+                    .Include(c => c.CreatedBy)  
+                    .FirstOrDefaultAsync(c => c.Id == company.Id);
+
                 return Result<CreatedCompanyDto>.SuccessResponse(new CreatedCompanyDto
                 {
                     AdminId = Admin.Id,
                     CompanyId = company.Id,
-                    Name = company.Name!,
-                    FirstName = company.CreatedBy.FirstName,
-                    CreatedAt = company.CreatedAt,
-                    CompanyEmail = company.CompanyEmail,
-                    HeadOffice = company.HeadOffice,
-                    AdminEmail = Admin.Email,
-                    UpdatedAt = company.UpdatedAt,
+                    Name = savedCompany!.Name!,          
+                    FirstName = savedCompany.CreatedBy.FirstName,  
+                    CreatedAt = savedCompany.CreatedAt,
+                    CompanyEmail = savedCompany.CompanyEmail,
+                    HeadOffice = savedCompany.HeadOffice,
+                    AdminEmail = savedCompany.AdminEmail!,  
+                    UpdatedAt = savedCompany.UpdatedAt,
                     TotalInventoryValue = 0,
                     TotalPurchases = 0,
                     SalesTrend = 0,
@@ -258,13 +264,6 @@ namespace IMS.Application.Services
                     return Result<CompanyDto>.FailureResponse("Company not found");
                 }
 
-                if (company.CreatedBy == null)
-                {
-                    _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Failed, "Company has no creator assigned");
-                    _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to fetch company {companyId} but creator was null");
-                    return Result<CompanyDto>.FailureResponse("Company creator not found");
-                }
-
                 var ProductsCount = company.Products.Count();
 
                 var companyDto = new CompanyDto
@@ -350,7 +349,7 @@ namespace IMS.Application.Services
                         Name = c.Name,
                         CompanyEmail = c.CompanyEmail,
                         HeadOffice = c.HeadOffice,
-                        AdminEmail = c.AdminEmail!
+                        AdminEmail = c.CreatedBy.Email!
                     })
                     .ToListAsync();
 

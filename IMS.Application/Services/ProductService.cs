@@ -131,7 +131,6 @@ namespace IMS.Application.Services
             }
         }
         #endregion
-
         public async Task<Result<Guid>> CreateProduct(ProductCreateDto dto)
         {
 
@@ -161,7 +160,7 @@ namespace IMS.Application.Services
                     if (supplier == null)
                         return Result<Guid>.FailureResponse("Supplier not found");
 
-                    if (dto.Warehouses == null || !dto.Warehouses.Any())
+                    if (dto.Warehouses == null || dto.Warehouses.Count == 0)
                         return Result<Guid>.FailureResponse("At least one warehouse is required");
 
                     var referenceWarehouseId = dto.Warehouses.First();
@@ -213,7 +212,7 @@ namespace IMS.Application.Services
 
                         try
                         {
-                            _context.Products.Add(product);
+                            await  _context.Products.AddAsync(product);
                             await _context.SaveChangesAsync();
                             break;
                         }
@@ -266,7 +265,6 @@ namespace IMS.Application.Services
 
                     await _stockTransactionService.LogTransaction(stockDto);
                     _jobqueue.EnqueueAWS_Ses(new List<string> { "adebayooluwasegun335@gmail.com" }, "Email Sent!", "Stock Transaction successfully logged");
-
                 }
 
                 if (dto.Image != null)
@@ -275,7 +273,6 @@ namespace IMS.Application.Services
                     product.ImgUrl = imageUrl;
                     await _context.SaveChangesAsync();
                 }
-
                 _jobqueue.EnqueueAudit(
                     userId,
                     companyId,
@@ -297,16 +294,16 @@ namespace IMS.Application.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Non-critical post-transaction operation failed for product {ProductId}", product.Id);
+                return Result<Guid>.FailureResponse("Non-critical post-transaction operation failed for product {ProductId}");
             }
 
             return Result<Guid>.SuccessResponse(product.Id);
         }
-
         public async Task<Result<ProductDto>> GetProductById(Guid productId)
         {
             var userId = _currentUserService.GetCurrentUserId();
             var companyId = await GetCurrentUserCompanyIdAsync();
-            _logger.LogInformation("User {UserId} requested product with Id {ProductId}", userId, productId);
+            //_logger.LogInformation("User {UserId} requested product with Id {ProductId}", userId, productId);
             if (productId == Guid.Empty)
             {
                 SafeEnqueue(() => _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, "Attempted to fetch product with empty Id"));
@@ -316,6 +313,7 @@ namespace IMS.Application.Services
             var summaryCacheKey = $"Product:{productId}:Summary";
             var stockCacheKey = $"Product:{productId}:Stock";
             var transactionsCacheKey = $"Product:{productId}:Transactions";
+
             if (!_cache.TryGetValue(summaryCacheKey, out ProductSummaryCache? summary))
             {
                 _logger.LogInformation("Summary cache miss for product {ProductId}", productId);
@@ -345,10 +343,12 @@ namespace IMS.Application.Services
                     SafeEnqueue(() => _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to fetch non-existing product {productId} for Company {companyId}"));
                     return Result<ProductDto>.FailureResponse("Product not found in the Database");
                 }
+
                 _cache.Set(summaryCacheKey, summary, new MemoryCacheEntryOptions
                 {
-                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(30)
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10)
                 });
+
                 SafeEnqueue(() => _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Product {summary.Name} ({productId}) loaded from DB and cached"));
                 SafeEnqueue(() => _jobqueue.EnqueueCloudWatchAudit($"User {userId} loaded product {summary.Name} ({productId}) from DB and cached for Company {companyId}"));
             }
@@ -358,6 +358,7 @@ namespace IMS.Application.Services
                 SafeEnqueue(() => _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Product {productId} summary retrieved from cache"));
                 SafeEnqueue(() => _jobqueue.EnqueueCloudWatchAudit($"User {userId} retrieved product {productId} summary from cache for Company {companyId}"));
             }
+
             if (!_cache.TryGetValue(stockCacheKey, out ProductStockDto cachedStockValue))
             {
                 _logger.LogInformation("Stock cache miss for product {ProductId}", productId);
@@ -365,6 +366,7 @@ namespace IMS.Application.Services
                     .Where(pw => pw.ProductId == productId)
                     .Include(pw => pw.Warehouse)
                     .ToListAsync();
+
                 var overAllCount = warehouses.Sum(w => w.Quantity);
                 cachedStockValue = new ProductStockDto
                 {
@@ -503,6 +505,16 @@ namespace IMS.Application.Services
                 return Result<List<ProductsDto>>.FailureResponse("Please, provide a valid company ID");
             }
 
+            var companyExists = await _context.Companies.AnyAsync(c => c.Id == companyId);
+
+            if (!companyExists)
+            {
+                _logger.LogWarning("Company {CompanyId} not found while fetching products", companyId);
+                SafeEnqueue(() => _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, "Attempted to fetch products for non-existing company"));
+                SafeEnqueue(() => _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to fetch products for non-existing Company {companyId}"));
+                return Result<List<ProductsDto>>.FailureResponse("Company with provided ID not found");
+            }
+
             pageNumber = Math.Max(pageNumber, 1);
             pageSize = Math.Clamp(pageSize, 1, 100);
 
@@ -520,16 +532,6 @@ namespace IMS.Application.Services
 
             _logger.LogInformation("Products cache MISS for Company {CompanyId} (Page {Page}, Size {Size})", companyId, pageNumber, pageSize);
 
-            var companyExists = await _context.Companies.AnyAsync(c => c.Id == companyId);
-
-            if (!companyExists)
-            {
-                _logger.LogWarning("Company {CompanyId} not found while fetching products", companyId);
-                SafeEnqueue(() => _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, "Attempted to fetch products for non-existing company"));
-                SafeEnqueue(() => _jobqueue.EnqueueCloudWatchAudit($"User {userId} attempted to fetch products for non-existing Company {companyId}"));
-                return Result<List<ProductsDto>>.FailureResponse("Company with provided ID not found");
-            }
-
             try
             {
                 var companyProducts = await _context.Products
@@ -541,7 +543,7 @@ namespace IMS.Application.Services
                     .Select(p => new ProductsDto(p.Id, p.Name, p.SKU, p.ImgUrl, p.RetailPrice))
                     .ToListAsync();
 
-                if (!companyProducts.Any())
+                if (companyProducts.Count == 0)
                 {
                     _logger.LogWarning("No products found for Company {CompanyId}", companyId);
                     SafeEnqueue(() => _jobqueue.EnqueueAudit(userId, companyId, AuditAction.Read, $"Fetched company products but none found (Page {pageNumber}, Size {pageSize})"));
@@ -569,7 +571,6 @@ namespace IMS.Application.Services
                 return Result<List<ProductsDto>>.FailureResponse("An unknown error occurred while fetching products");
             }
         }
-
         public async Task<Result<string>> UpdateProduct(Guid productId, ProductUpdateDto dto)
         {
             var userId = _currentUserService.GetCurrentUserId();
@@ -615,7 +616,6 @@ namespace IMS.Application.Services
 
             return Result<string>.SuccessResponse("Product updated successfully.");
         }
-
         public async Task<Result<string>> DeleteProduct(Guid productId)
         {
             var userId = _currentUserService.GetCurrentUserId();
@@ -732,7 +732,6 @@ namespace IMS.Application.Services
                 return Result<WarehouseProductsResponse>.FailureResponse("An error occurred while fetching warehouse products");
             }
         }
-
         public async Task<Result<string>> UploadProductImage(Guid productId, IFormFile file)
         {
             _logger.LogInformation("Starting image upload for product {ProductId}", productId);
@@ -792,7 +791,6 @@ namespace IMS.Application.Services
                 return Result<string>.FailureResponse("Failed to upload product image");
             }
         }
-
         public async Task<Result<PaginatedProductsDto>> GetProductBySku(string sku, int pageNumber = 1, int pageSize = 20)
         {
             var userId = _currentUserService.GetCurrentUserId();
@@ -870,7 +868,6 @@ namespace IMS.Application.Services
                 return Result<PaginatedProductsDto>.FailureResponse("An error occurred while fetching products");
             }
         }
-
         public async Task<Result<List<ProductsDto>>> GetFilteredProducts(
             Guid? warehouseId, Guid? supplierId, string? Name, string? Sku, string categoryName, int pageNumber = 1, int pageSize = 20)
         {

@@ -35,7 +35,6 @@ builder.Services.AddRateLimiter(options =>
     });
 });
 
-
 builder.Services.AddSwaggerGen(c =>
 {
     //c.SwaggerDoc("v1", new OpenApiInfo { Title = "My API", Version = "v1" });
@@ -145,7 +144,6 @@ builder.Services
     });
 
 
-
 builder.Services.AddMemoryCache();
 builder.Services.AddOpenApi();
 builder.Services.AddHangfire(configuration =>
@@ -194,6 +192,7 @@ var app = builder.Build();
 //    var config = services.GetRequiredService<IConfiguration>();
 //    await AdminSeeder.AdminSeeder(config);
 //}
+
 
 var cloudWatchLogger = app.Services.GetRequiredService<ICloudWatchLogger>();
 

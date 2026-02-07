@@ -15,13 +15,11 @@ namespace IMS.API
             var response = Result<object>.FailureResponse(error, message);
             return BadRequest(response);
         }
-
         protected ActionResult NotFoundResponse(string error = "Resource not found", string? message = null)
         {
             var response = Result<object>.FailureResponse(error, message);
             return NotFound(response);
         }
-
         protected ActionResult UnauthorizedResponse(string error = "Unauthorized", string? message = null)
         {
             var response = Result<object>.FailureResponse(error, message);

@@ -20,7 +20,6 @@ namespace IMS.Application.Services
                 throw new ValidationException("Invalid phone number.");
             }
             return Task.CompletedTask; 
-
         }
     }
 }
